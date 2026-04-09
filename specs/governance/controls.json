@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "maturityTarget": "level-5",
+  "canonicalPolicySources": [
+    "agentic-repo.toml",
+    "specs/governance/controls.json"
+  ],
+  "requiredAgents": [
+    "planner",
+    "backend",
+    "tests",
+    "review"
+  ],
+  "requiredEvidence": [
+    "spec_delta",
+    "generated_contract_sync",
+    "build_output",
+    "test_results",
+    "security_review",
+    "risk_notes",
+    "approval_record"
+  ],
+  "humanApprovalRequiredFor": [
+    "architecture",
+    "schema",
+    "security",
+    "release"
+  ],
+  "parallelExecution": {
+    "isolation": "git_worktree",
+    "defaultMode": "worktrees",
+    "rootOverride": "explicit_flag_only",
+    "allowedDomains": [
+      "backend",
+      "tests"
+    ],
+    "requiresSharedContractSync": true
+  },
+  "auditTrail": {
+    "codeownersRequired": true,
+    "placeholderOwnersForbidden": true,
+    "prTemplateRequired": true,
+    "ciRequired": true,
+    "securityWorkflowRequired": true,
+    "staticAnalysisRequired": true
+  },
+  "pullRequestTemplate": {
+    "requiredSections": [
+      "Summary",
+      "Agent Scope",
+      "Contract Impact",
+      "Spec Impact",
+      "Validation",
+      "Human Approval",
+      "Risk Notes"
+    ],
+    "requiredPrompts": [
+      "What changed",
+      "Why",
+      "Required approvals",
+      "Approval record",
+      "Residual risk"
+    ]
+  },
+  "ciPolicy": {
+    "requiredCommands": [
+      "python3 scripts/generate-contract-artifacts.py --check && python3 scripts/validate-specs.py && ./scripts/check-scaffold.sh",
+      "python3 -m compileall voice_agent backend shared tests",
+      "python3 -m unittest discover -s tests -p 'test_*.py'"
+    ],
+    "requiredSecurityWorkflows": [
+      ".github/workflows/security.yml",
+      ".github/workflows/codeql.yml"
+    ],
+    "requiredGovernanceWorkflow": ".github/workflows/governance.yml"
+  }
+}

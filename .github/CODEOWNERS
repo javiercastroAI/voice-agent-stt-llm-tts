@@ -1,0 +1,9 @@
+* @macjcp
+
+        /specs/ @macjcp
+/contracts/ @macjcp
+/shared/ @macjcp
+/docs/ @macjcp
+/.github/ @macjcp
+/backend/ @macjcp
+/tests/ @macjcp

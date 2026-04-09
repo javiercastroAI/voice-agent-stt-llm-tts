@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "title": "Baseline system rules",
+  "invariants": [
+    "Replace with the business invariants that must remain true.",
+    "List the state or behavior rules that tests should protect."
+  ],
+  "successCriteria": [
+    "Replace with measurable outcomes or acceptance conditions."
+  ],
+  "nonGoals": [
+    "Replace with out-of-scope behavior."
+  ]
+}

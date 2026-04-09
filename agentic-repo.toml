@@ -1,0 +1,41 @@
+[repo]
+name = "Voice agents STT-LLM-TTS (Spec driven)"
+runtime = "python"
+mode = "spec-native"
+maturity_target = "level-5"
+
+[ownership]
+default_codeowners = ["@macjcp"]
+
+[paths]
+specs = "specs"
+contracts = "contracts"
+shared = "shared"
+docs = "docs"
+tests = "tests"
+
+[agents]
+primary = ["backend", "tests"]
+governance = ["planner", "review"]
+
+[commands]
+install = "python3 -m pip install -e ."
+spec_generate = "python3 scripts/generate-contract-artifacts.py"
+spec_validate = "python3 scripts/generate-contract-artifacts.py --check && python3 scripts/validate-specs.py"
+build = "python3 -m compileall voice_agent backend shared tests"
+test = "python3 -m unittest discover -s tests -p 'test_*.py'"
+e2e = "echo 'Replace the e2e command with the real browser or system checks'"
+
+[policies]
+require_spec_delta = true
+require_generated_contract_sync = true
+require_same_change_set_for_contract_updates = true
+require_human_review_for = ["architecture", "schema", "security", "release"]
+
+[parallelism]
+strategy = "git-worktrees"
+default_execution = "worktrees"
+root_override_flag = "--root"
+worktree_script = "./scripts/setup-worktrees.sh"
+run_script = "./scripts/run-agents.sh"
+allow_cloud_execution = true

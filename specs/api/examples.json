@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "validExamples": [
+    {
+      "type": "replace-me",
+      "payload": {
+        "example": true
+      }
+    }
+  ],
+  "invalidExamples": [
+    {
+      "type": "replace-me",
+      "payload": "replace with a malformed example"
+    }
+  ]
+}

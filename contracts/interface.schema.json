@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/voice-agents-stt-llm-tts-spec-driven/contracts/interface.schema.json",
+  "title": "Voice agents STT-LLM-TTS (Spec driven) Interface Contract",
+  "description": "Replace this baseline schema with the real cross-domain contract. Keep a top-level type + payload envelope unless you intentionally redesign the generator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Replace with a domain-specific event, command, or message type."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Replace with the real payload contract."
+    }
+  }
+}

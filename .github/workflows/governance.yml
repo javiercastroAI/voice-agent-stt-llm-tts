@@ -1,0 +1,41 @@
+name: Governance
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-governance:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect changed files
+        id: changed
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          {
+            echo 'files<<EOF'
+            git diff --name-only "FETCH_HEAD...HEAD"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate PR governance body
+        run: python3 scripts/check-pr-governance.py
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
