@@ -4,6 +4,9 @@ A Python voice-agent runtime for building and testing low-latency contact-center
 experiences with OpenAI, LiveKit Agents, Silero VAD, barge-in handling, local
 telemetry, and a transcript web UI.
 
+Author: Javier Castro. This project is shared for research and education
+purposes.
+
 The checked-in demo profile is a Spanish outbound collections scenario:
 `MacroHard` calls `Al Corriente S.L.` about one pending `CloudX` monthly charge
 for `1.527 euros`. The scenario is deliberately fictional and can be replaced
