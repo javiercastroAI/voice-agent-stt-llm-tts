@@ -30,8 +30,21 @@ class TranscriptStore:
         self._lock = Lock()
         self._messages: list[TranscriptMessage] = []
         self._next_id = 1
+        self._metric_order = ("llm", "stt", "tts", "eou", "barge_in")
+        self._metrics: dict[str, dict[str, object]] = {}
         self._user_state = "listening"
         self._agent_state = "initializing"
+        self._barge_in_state: dict[str, object] = {
+            "enabled": True,
+            "state": "monitoring",
+            "last_reason": "Waiting for user speech while agent is speaking",
+            "detected": 0,
+            "confirmed": 0,
+            "ignored": 0,
+            "false_interruptions": 0,
+            "resumed_false_interruptions": 0,
+        }
+        self._barge_in_events: list[dict[str, object]] = []
         self._live_user_text = ""
         self._live_user_speaker: str | None = None
         self._live_agent_text = ""
@@ -62,6 +75,23 @@ class TranscriptStore:
         with self._lock:
             self._technologies = tuple(technology for technology in technologies if technology)
 
+    def set_metric_panel(
+        self,
+        *,
+        panel_id: str,
+        title: str,
+        items: list[dict[str, str]],
+    ) -> None:
+        with self._lock:
+            self._metrics[panel_id] = {
+                "id": panel_id,
+                "title": title,
+                "items": [
+                    {"label": item["label"], "value": item["value"]}
+                    for item in items
+                ],
+            }
+
     def set_user_state(self, state: str) -> None:
         with self._lock:
             self._user_state = state
@@ -71,6 +101,15 @@ class TranscriptStore:
     def set_agent_state(self, state: str) -> None:
         with self._lock:
             self._agent_state = state
+
+    def set_barge_in_state(self, state: dict[str, object]) -> None:
+        with self._lock:
+            self._barge_in_state = dict(state)
+
+    def add_barge_in_event(self, event: dict[str, object]) -> None:
+        with self._lock:
+            self._barge_in_events.append(dict(event))
+            self._barge_in_events = self._barge_in_events[-200:]
 
     def set_live_user_text(self, text: str, *, speaker: str | None = None) -> None:
         cleaned = text.strip()
@@ -165,13 +204,29 @@ class TranscriptStore:
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
+            metric_panels = [
+                {
+                    "id": str(self._metrics[panel_id]["id"]),
+                    "title": str(self._metrics[panel_id]["title"]),
+                    "items": [
+                        {"label": str(item["label"]), "value": str(item["value"])}
+                        for item in self._metrics[panel_id]["items"]
+                    ],
+                }
+                for panel_id in self._metric_order
+                if panel_id in self._metrics
+            ]
             return {
                 "user_state": self._user_state,
                 "agent_state": self._agent_state,
+                "barge_in_state": dict(self._barge_in_state),
+                "barge_in_kpis": dict(self._barge_in_state.get("kpis", {})),
+                "barge_in_events": [dict(event) for event in self._barge_in_events],
                 "live_user_text": self._live_user_text,
                 "live_user_speaker": self._live_user_speaker,
                 "live_agent_text": self._live_agent_text,
                 "models": list(self._models),
+                "metrics": metric_panels,
                 "hero_card": {
                     "title": self._hero_card["title"],
                     "items": list(self._hero_card["items"]),
@@ -353,8 +408,20 @@ def _build_html() -> str:
 
     .hero {
       display: grid;
-      gap: 14px;
+      gap: 18px;
       margin-bottom: 22px;
+    }
+
+    .hero-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .hero-copy {
+      display: grid;
+      gap: 14px;
     }
 
     .eyebrow {
@@ -389,7 +456,7 @@ def _build_html() -> str:
 
     .overview-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 18px;
       margin-bottom: 28px;
       align-items: start;
@@ -426,6 +493,68 @@ def _build_html() -> str:
     .section-stack {
       display: grid;
       gap: 18px;
+    }
+
+    .metrics-section {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .metric-card {
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      display: grid;
+      gap: 10px;
+    }
+
+    .metric-title {
+      margin: 0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+
+    .metric-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(64, 44, 27, 0.08);
+    }
+
+    .metric-row:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .metric-value {
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
     }
 
     .model-row {
@@ -474,20 +603,25 @@ def _build_html() -> str:
       position: relative;
       overflow: hidden;
       background:
-        radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 10rem),
-        linear-gradient(135deg, rgba(29, 78, 216, 0.08), rgba(154, 52, 18, 0.10)),
-        rgba(255, 255, 255, 0.62);
+        radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 9rem),
+        linear-gradient(135deg, rgba(29, 78, 216, 0.04), rgba(154, 52, 18, 0.05)),
+        rgba(255, 255, 255, 0.68);
+      border-color: rgba(64, 44, 27, 0.08);
+    }
+
+    .hero .hero-card {
+      min-height: 100%;
     }
 
     .hero-card::after {
       content: "";
       position: absolute;
-      inset: auto -20% -40% auto;
-      width: 180px;
-      height: 180px;
+      inset: auto -12% -28% auto;
+      width: 132px;
+      height: 132px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.36);
-      filter: blur(8px);
+      background: rgba(255, 255, 255, 0.22);
+      filter: blur(10px);
     }
 
     .hero-card-title {
@@ -642,6 +776,10 @@ def _build_html() -> str:
     }
 
     @media (max-width: 880px) {
+      .hero-layout {
+        grid-template-columns: 1fr;
+      }
+
       .overview-grid {
         grid-template-columns: 1fr;
       }
@@ -651,9 +789,22 @@ def _build_html() -> str:
 <body>
   <main class="shell">
     <section class="hero">
-      <p class="eyebrow">Console Transcript</p>
-      <h1>Voice Agent Live View</h1>
-      <p class="subhead">This page mirrors the console conversation so you can follow the exchange outside the terminal. User diarization appears when each utterance finishes; agent text streams while it is generated.</p>
+      <div class="hero-layout">
+        <div class="hero-copy">
+          <p class="eyebrow">Console Transcript</p>
+          <h1>Voice Agent Live View</h1>
+          <p class="subhead">This page mirrors the console conversation so you can follow the exchange outside the terminal. User diarization appears when each utterance finishes; agent text streams while it is generated.</p>
+        </div>
+
+        <article class="detail-card hero-card">
+          <h2 id="hero-card-title" class="hero-card-title"></h2>
+          <div id="hero-pill-list" class="hero-pill-list">
+            <span class="hero-pill">Javier Castro</span>
+            <span class="hero-pill">DNAI</span>
+            <span class="hero-pill">2026</span>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="status-grid">
@@ -666,39 +817,36 @@ def _build_html() -> str:
         <span id="agent-state" class="status-value">initializing</span>
       </article>
       <article class="status-card">
+        <span class="status-label">Barge-in</span>
+        <span id="barge-in-state" class="status-value">monitoring</span>
+      </article>
+      <article class="status-card">
         <span class="status-label">Refresh</span>
         <span class="status-value">350 ms</span>
       </article>
     </section>
 
     <section class="overview-grid">
-      <article class="detail-card">
-        <div class="section-stack">
-          <div>
-            <p class="detail-title">Current Models</p>
-            <div id="model-list" class="model-list">
-              <div class="empty">Model metadata will appear here once the session starts.</div>
-            </div>
-          </div>
-
-          <div>
-            <p class="detail-title">Technology</p>
-            <div id="technology-list" class="tech-list">
-              <div class="empty">Technology metadata will appear here once the session starts.</div>
-            </div>
-          </div>
+      <article id="models-card" class="detail-card">
+        <p class="detail-title">Current Models</p>
+        <div id="model-list" class="model-list">
+          <div class="empty">Model metadata will appear here once the session starts.</div>
         </div>
       </article>
 
-      <article class="detail-card hero-card">
-        <p class="detail-title">Identity</p>
-        <h2 id="hero-card-title" class="hero-card-title"></h2>
-        <div id="hero-pill-list" class="hero-pill-list">
-          <span class="hero-pill">Javier Castro</span>
-          <span class="hero-pill">DNAI</span>
-          <span class="hero-pill">2026</span>
+      <article id="technology-card" class="detail-card">
+        <p class="detail-title">Technology</p>
+        <div id="technology-list" class="tech-list">
+          <div class="empty">Technology metadata will appear here once the session starts.</div>
         </div>
       </article>
+    </section>
+
+    <section class="metrics-section">
+      <p class="detail-title">Live Metrics</p>
+      <div id="metrics-grid" class="metrics-grid">
+        <div class="empty">Latency and timing metrics will appear here once the session starts.</div>
+      </div>
     </section>
 
     <section class="board">
@@ -722,6 +870,8 @@ def _build_html() -> str:
     function stateClass(value) {
       if (value === "speaking") return "status-value is-speaking";
       if (value === "thinking") return "status-value is-thinking";
+      if (value === "candidate" || value === "interrupted") return "status-value is-speaking";
+      if (value === "false_interruption" || value === "false_interruption_resumed") return "status-value is-thinking";
       return "status-value";
     }
 
@@ -770,6 +920,26 @@ def _build_html() -> str:
 
       techList.innerHTML = technologies.map((technology) => `
         <span class="tech-pill">${escapeHtml(technology)}</span>
+      `).join("");
+    }
+
+    function renderMetrics(metrics) {
+      const metricsGrid = document.getElementById("metrics-grid");
+      if (!Array.isArray(metrics) || !metrics.length) {
+        metricsGrid.innerHTML = '<div class="empty">Latency and timing metrics will appear here once the session starts.</div>';
+        return;
+      }
+
+      metricsGrid.innerHTML = metrics.map((panel) => `
+        <article class="metric-card">
+          <p class="metric-title">${escapeHtml(panel.title || panel.id || "Metrics")}</p>
+          <div class="metric-list">${(Array.isArray(panel.items) ? panel.items : []).map((item) => `
+            <div class="metric-row">
+              <span class="metric-label">${escapeHtml(item.label || "")}</span>
+              <span class="metric-value">${escapeHtml(item.value || "")}</span>
+            </div>
+          `).join("")}</div>
+        </article>
       `).join("");
     }
 
@@ -834,12 +1004,14 @@ def _build_html() -> str:
     function render(state) {
       renderState("user-state", state.user_state);
       renderState("agent-state", state.agent_state);
+      renderState("barge-in-state", (state.barge_in_state && state.barge_in_state.state) || "monitoring");
       renderModels(state.models);
+      renderMetrics(state.metrics);
       renderHeroCard(state.hero_card);
       renderTechnologies(state.technologies);
 
       const messages = [...state.messages, ...buildLiveMessages(state)];
-      const fingerprint = JSON.stringify(messages) + state.user_state + state.agent_state + JSON.stringify(state.models) + JSON.stringify(state.hero_card) + JSON.stringify(state.technologies);
+      const fingerprint = JSON.stringify(messages) + state.user_state + state.agent_state + JSON.stringify(state.barge_in_state) + JSON.stringify(state.models) + JSON.stringify(state.metrics) + JSON.stringify(state.hero_card) + JSON.stringify(state.technologies);
       if (fingerprint === lastFingerprint) {
         return;
       }

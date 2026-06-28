@@ -24,10 +24,14 @@ for fragment in [
     'maturity_target = "level-5"',
     '[ownership]',
     'default_codeowners = [',
+    '[legal]',
+    'license = "MIT"',
+    'license_file = "LICENSE"',
     '[agents]',
     'governance = ["planner", "review"]',
     '[policies]',
     'require_generated_contract_sync = true',
+    'require_license_file = true',
     '[parallelism]',
     'default_execution = "worktrees"',
     'root_override_flag = "--root"',
@@ -49,10 +53,18 @@ if isinstance(governance, dict):
         fail("specs/governance/controls.json: version must be 2")
     if governance.get("maturityTarget") != "level-5":
         fail("specs/governance/controls.json: maturityTarget must be level-5")
+    if governance.get("repositoryLicense", {}).get("spdx") != "MIT":
+        fail("specs/governance/controls.json: repositoryLicense.spdx must be MIT")
+    if governance.get("repositoryLicense", {}).get("file") != "LICENSE":
+        fail("specs/governance/controls.json: repositoryLicense.file must be LICENSE")
     if governance.get("parallelExecution", {}).get("defaultMode") != "worktrees":
         fail("specs/governance/controls.json: parallelExecution.defaultMode must be worktrees")
     if governance.get("auditTrail", {}).get("placeholderOwnersForbidden") is not True:
         fail("specs/governance/controls.json: auditTrail.placeholderOwnersForbidden must be true")
+
+pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+if 'license = {file = "LICENSE"}' not in pyproject:
+    fail('pyproject.toml: project license must point to "LICENSE"')
 
 contract = read_json("contracts/interface.schema.json")
 if isinstance(contract, dict):
@@ -116,11 +128,11 @@ setup_worktrees = (root / "scripts" / "setup-worktrees.sh").read_text(encoding="
 if "default_base_branch()" not in setup_worktrees or "BASE_BRANCH" not in setup_worktrees:
     fail("scripts/setup-worktrees.sh: base branch must be derived dynamically")
 
-for change_spec in ["specs/changes/0001-baseline-scope.md", "specs/changes/0002-level-5-operating-model.md"]:
-    content = (root / change_spec).read_text(encoding="utf-8")
+for change_path in sorted((root / "specs" / "changes").glob("*.md")):
+    content = change_path.read_text(encoding="utf-8")
     for section in ["## Goal", "## Scope", "## Acceptance Criteria"]:
         if section not in content:
-            fail(f"{change_spec}: missing section {section}")
+            fail(f"{change_path.relative_to(root)}: missing section {section}")
 
 if errors:
     print("Spec validation failed:")

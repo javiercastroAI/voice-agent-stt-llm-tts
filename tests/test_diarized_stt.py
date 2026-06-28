@@ -99,3 +99,40 @@ class OpenAIDiarizedSTTTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(event.alternatives[0].language.language, "es")
+
+    async def test_recognize_impl_uses_constructor_language_by_default(self) -> None:
+        recognizer = OpenAIDiarizedSTT(api_key="test-key", language="es")
+
+        async def create(**kwargs):
+            self.assertEqual(kwargs["language"], "es")
+            return TranscriptionDiarized.model_validate(
+                {
+                    "duration": 1.0,
+                    "task": "transcribe",
+                    "text": "hola",
+                    "segments": [
+                        {
+                            "id": "seg_1",
+                            "type": "transcript.text.segment",
+                            "speaker": "A",
+                            "start": 0.0,
+                            "end": 1.0,
+                            "text": "hola",
+                        }
+                    ],
+                }
+            )
+
+        recognizer._client = SimpleNamespace(
+            audio=SimpleNamespace(
+                transcriptions=SimpleNamespace(create=create),
+            )
+        )
+
+        event = await recognizer._recognize_impl(
+            [rtc.AudioFrame.create(sample_rate=24000, num_channels=1, samples_per_channel=2400)],
+            conn_options=APIConnectOptions(),
+            language=NOT_GIVEN,
+        )
+
+        self.assertEqual(event.alternatives[0].language.language, "es")

@@ -6,6 +6,7 @@
 
       required_files=(
 "README.md"
+"LICENSE"
 "AGENTS.md"
 "agentic-repo.toml"
 "CONTRIBUTING.md"

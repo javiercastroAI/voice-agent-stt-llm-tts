@@ -105,7 +105,7 @@ class AppTests(unittest.TestCase):
         config = AgentConfig.from_env(
             {
                 "OPENAI_API_KEY": "openai-key",
-                "OPENAI_MODEL": "gpt-4o",
+                "OPENAI_MODEL": "gpt-4o-mini",
                 "OPENAI_STT_MODEL": "gpt-4o-transcribe-diarize",
                 "OPENAI_TTS_MODEL": "gpt-4o-mini-tts",
                 "OPENAI_TTS_VOICE": "marin",
@@ -114,8 +114,15 @@ class AppTests(unittest.TestCase):
 
         models, technologies = build_web_metadata(config)
 
-        self.assertEqual(models[0], {"label": "LLM", "value": "gpt-4o"})
-        self.assertEqual(models[3], {"label": "Voice", "value": "marin"})
+        self.assertEqual(models[0], {"label": "Pipeline", "value": "controlled_fast"})
+        self.assertEqual(models[1], {"label": "LLM", "value": "gpt-4o-mini"})
+        self.assertEqual(models[2], {"label": "LLM Max Tokens", "value": "60"})
+        self.assertEqual(models[3], {"label": "LLM Temperature", "value": "0.20"})
+        self.assertEqual(models[4], {"label": "Runtime STT", "value": "gpt-4o-mini-transcribe"})
+        self.assertEqual(models[5], {"label": "Runtime STT Realtime", "value": "enabled"})
+        self.assertEqual(models[7], {"label": "STT Language", "value": "es"})
+        self.assertEqual(models[9], {"label": "Voice", "value": "marin"})
+        self.assertEqual(models[10], {"label": "TTS Format/Speed", "value": "pcm/1.05x"})
         self.assertIn("OpenAI", technologies)
         self.assertIn("LiveKit Agents", technologies)
 
@@ -127,6 +134,9 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             set_models=Mock(),
             set_hero_card=Mock(),
             set_technologies=Mock(),
+            set_barge_in_state=Mock(),
+            add_barge_in_event=Mock(),
+            set_metric_panel=Mock(),
         )
         fake_web_server = SimpleNamespace(
             store=fake_store,
@@ -152,11 +162,32 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("voice_agent.app.AgentConfig.from_env", return_value=fake_config),
             patch("voice_agent.app.TranscriptWebServer", return_value=fake_web_server),
-            patch("voice_agent.app.AgentSession", return_value=fake_session),
+            patch("voice_agent.app.AgentSession", return_value=fake_session) as session_factory,
             patch("voice_agent.app.AssistantAgent", return_value=object()),
         ):
             await entrypoint(fake_ctx)
 
+        session_factory.assert_called_once_with(
+            turn_handling={
+                "endpointing": {
+                    "mode": "dynamic",
+                    "min_delay": 0.20,
+                    "max_delay": 0.55,
+                },
+                "interruption": {
+                    "enabled": True,
+                    "mode": "vad",
+                    "discard_audio_if_uninterruptible": True,
+                    "min_duration": 0.20,
+                    "min_words": 2,
+                    "false_interruption_timeout": 1.2,
+                    "resume_false_interruption": True,
+                },
+            },
+            min_consecutive_speech_delay=0.10,
+            preemptive_generation=False,
+            user_away_timeout=30.0,
+        )
         fake_web_server.start.assert_called_once_with()
         fake_web_server.close.assert_not_called()
         fake_store.set_models.assert_called_once()
@@ -167,6 +198,7 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
         fake_store.set_technologies.assert_called_once()
         self.assertIsNotNone(fake_session.output.transcription)
         self.assertIn("close", fake_session.handlers)
+        self.assertIn("agent_false_interruption", fake_session.handlers)
 
         close_handler = fake_session.handlers["close"][0]
         close_handler(None)

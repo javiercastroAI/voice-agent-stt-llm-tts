@@ -5,6 +5,10 @@
     "agentic-repo.toml",
     "specs/governance/controls.json"
   ],
+  "repositoryLicense": {
+    "spdx": "MIT",
+    "file": "LICENSE"
+  },
   "requiredAgents": [
     "planner",
     "backend",

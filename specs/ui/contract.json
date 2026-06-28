@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "surface": "console_transcript_web_ui",
+  "requiredElementIds": [
+    "user-state",
+    "agent-state",
+    "barge-in-state",
+    "model-list",
+    "technology-list",
+    "metrics-grid",
+    "feed"
+  ],
+  "requiredStateFields": [
+    "user_state",
+    "agent_state",
+    "barge_in_state",
+    "barge_in_kpis",
+    "barge_in_events",
+    "models",
+    "technologies",
+    "metrics",
+    "messages",
+    "live_user_text",
+    "live_agent_text"
+  ],
+  "requiredMetricPanels": [
+    "llm",
+    "stt",
+    "tts",
+    "eou",
+    "barge_in"
+  ]
+}

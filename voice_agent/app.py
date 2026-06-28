@@ -8,19 +8,44 @@ from collections.abc import Mapping, Sequence
 from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 
 from .agent import AssistantAgent
+from .barge_in import BargeInController, BargeInPolicy
 from .config import AgentConfig, ConfigError, SUPPORTED_COMMANDS
-from .metrics import log_metrics_event
+from .metrics import VoiceTelemetryRecorder, log_metrics_event, sync_metric_panel
 from .transcript import ConversationTraceLogger
 from .web import TranscriptWebServer
 
 
 def build_web_metadata(config: AgentConfig) -> tuple[list[dict[str, str]], list[str]]:
     models = [
+        {"label": "Pipeline", "value": config.voice_pipeline_mode},
         {"label": "LLM", "value": config.openai_model},
-        {"label": "STT", "value": config.openai_stt_model},
+        {
+            "label": "LLM Max Tokens",
+            "value": str(config.openai_max_completion_tokens or "unlimited"),
+        },
+        {"label": "LLM Temperature", "value": f"{config.openai_llm_temperature:.2f}"},
+        {
+            "label": "Runtime STT",
+            "value": (
+                config.openai_fast_stt_model
+                if config.voice_pipeline_mode == "controlled_fast"
+                else config.openai_stt_model
+            ),
+        },
+        {
+            "label": "Runtime STT Realtime",
+            "value": "enabled" if config.openai_fast_stt_realtime else "disabled",
+        },
+        {"label": "Analytics STT", "value": config.openai_stt_model},
+        {"label": "STT Language", "value": config.openai_stt_language},
         {"label": "TTS", "value": config.openai_tts_model},
         {"label": "Voice", "value": config.openai_tts_voice},
+        {
+            "label": "TTS Format/Speed",
+            "value": f"{config.openai_tts_response_format}/{config.openai_tts_speed:.2f}x",
+        },
         {"label": "VAD", "value": "silero"},
+        {"label": "Barge-in", "value": "enabled" if config.barge_in_enabled else "disabled"},
     ]
     technologies = [
         "OpenAI",
@@ -98,13 +123,60 @@ def build_worker_options(
 async def entrypoint(ctx: JobContext) -> None:
     config = AgentConfig.from_env(load_dotenv_file=True)
     web_server = TranscriptWebServer() if ctx.is_fake_job() else None
-    session = AgentSession()
+    barge_in_policy = BargeInPolicy.from_config(config)
+    session = AgentSession(**barge_in_policy.session_options())
     trace_logger = ConversationTraceLogger(store=web_server.store if web_server else None)
+    voice_telemetry = VoiceTelemetryRecorder(
+        jsonl_path=config.voice_metrics_telemetry_path,
+        sqlite_path=config.voice_metrics_sqlite_path,
+    )
 
-    session.on("metrics_collected", log_metrics_event)
-    session.on("agent_state_changed", trace_logger.on_agent_state_changed)
-    session.on("user_state_changed", trace_logger.on_user_state_changed)
-    session.on("user_input_transcribed", trace_logger.on_user_input_transcribed)
+    def request_immediate_agent_mute(_created_at: float) -> tuple[bool, str | None]:
+        try:
+            interruption = session.interrupt(force=True)
+        except Exception as exc:
+            return False, f"{exc.__class__.__name__}: {exc}"
+
+        def drain_interruption_result(future) -> None:
+            try:
+                future.result()
+            except Exception:
+                return
+
+        interruption.add_done_callback(drain_interruption_result)
+        return True, "session.interrupt(force=True)"
+
+    barge_in_controller = BargeInController(
+        barge_in_policy,
+        store=web_server.store if web_server else None,
+        on_immediate_mute=request_immediate_agent_mute,
+    )
+
+    def handle_metrics_collected(event) -> None:
+        log_metrics_event(event)
+        voice_telemetry.record_metric(event.metrics)
+        if web_server is not None:
+            sync_metric_panel(event.metrics, store=web_server.store)
+
+    session.on("metrics_collected", handle_metrics_collected)
+
+    def handle_agent_state_changed(event) -> None:
+        trace_logger.on_agent_state_changed(event)
+        barge_in_controller.on_agent_state_changed(event)
+
+    def handle_user_state_changed(event) -> None:
+        trace_logger.on_user_state_changed(event)
+        barge_in_controller.on_user_state_changed(event)
+
+    def handle_user_input_transcribed(event) -> None:
+        trace_logger.on_user_input_transcribed(event)
+        voice_telemetry.record_user_transcript(event)
+        barge_in_controller.on_user_input_transcribed(event)
+
+    session.on("agent_state_changed", handle_agent_state_changed)
+    session.on("user_state_changed", handle_user_state_changed)
+    session.on("user_input_transcribed", handle_user_input_transcribed)
+    session.on("agent_false_interruption", barge_in_controller.on_agent_false_interruption)
     session.on("conversation_item_added", trace_logger.on_conversation_item_added)
 
     if ctx.is_fake_job():

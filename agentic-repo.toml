@@ -7,6 +7,10 @@ maturity_target = "level-5"
 [ownership]
 default_codeowners = ["@macjcp"]
 
+[legal]
+license = "MIT"
+license_file = "LICENSE"
+
 [paths]
 specs = "specs"
 contracts = "contracts"
@@ -30,6 +34,7 @@ e2e = "echo 'Replace the e2e command with the real browser or system checks'"
 require_spec_delta = true
 require_generated_contract_sync = true
 require_same_change_set_for_contract_updates = true
+require_license_file = true
 require_human_review_for = ["architecture", "schema", "security", "release"]
 
 [parallelism]
