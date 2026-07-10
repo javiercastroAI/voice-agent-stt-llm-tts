@@ -96,3 +96,17 @@ class ConversationTraceLoggerStreamingTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(writes, ["\nAgent: ", "Hi", ", there.", "\n"])
+
+    async def test_reports_finalized_streamed_text_to_callback(self) -> None:
+        finalized: list[str] = []
+        logger = ConversationTraceLogger(
+            write=lambda _text: None,
+            on_agent_text_finalized=finalized.append,
+        )
+        output = logger.build_agent_text_output()
+
+        await output.capture_text("Final farewell.")
+        output.flush()
+        output.flush()
+
+        self.assertEqual(finalized, ["Final farewell."])

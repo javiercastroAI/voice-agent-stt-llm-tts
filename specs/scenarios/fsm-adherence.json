@@ -24,7 +24,7 @@
       "id": "recognized-case-resolution",
       "covers": ["identity_verification", "case_disclosure", "resolution", "confirmation", "ended"],
       "turns": [
-        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure", "expectedDirective": "disclose_case_and_ask_recognition"},
+        {"user": "Soy Javier Pérez y soy la persona responsable.", "intent": "identity_confirmed", "verificationFields": ["role", "name_and_first_surname"], "expectedPhase": "case_disclosure", "expectedDirective": "disclose_case_and_ask_recognition"},
         {"user": "Sí, reconozco el caso.", "intent": "recognizes_case", "expectedPhase": "resolution", "expectedDirective": "offer_case_approved_resolutions"},
         {"user": "Prefiero un plan de pago.", "intent": "resolution_selected", "resolutionType": "payment_plan", "expectedPhase": "confirmation", "expectedDirective": "confirm_selected_resolution"},
         {"user": "Confirmo.", "intent": "outcome_confirmed", "expectedPhase": "ended", "expectedDirective": "confirm_outcome_and_close", "expectedShouldEnd": true}
@@ -41,7 +41,7 @@
       "id": "case-disclosed-recognition-step",
       "covers": ["recognition"],
       "turns": [
-        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure"},
+        {"user": "Soy Javier Pérez y soy la persona responsable.", "intent": "identity_confirmed", "verificationFields": ["role", "name_and_first_surname"], "expectedPhase": "case_disclosure"},
         {"user": "Ha terminado de explicar el caso.", "intent": "case_disclosed", "source": "system", "expectedPhase": "recognition", "expectedDirective": "ask_case_recognition"}
       ]
     },
@@ -49,10 +49,28 @@
       "id": "dispute-and-escalation",
       "covers": ["objection_handling", "escalation", "ended"],
       "turns": [
-        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure"},
+        {"user": "Soy Javier Pérez y soy la persona responsable.", "intent": "identity_confirmed", "verificationFields": ["role", "name_and_first_surname"], "expectedPhase": "case_disclosure"},
         {"user": "Esto ya está pagado.", "intent": "objection_provided", "objectionType": "already_paid", "expectedPhase": "objection_handling", "expectedDirective": "clarify_and_review_objection"},
         {"user": "No puede resolverse aquí.", "intent": "cannot_resolve", "expectedPhase": "escalation", "expectedDirective": "explain_limit_and_escalate"},
         {"user": "Escalación registrada.", "intent": "escalation_completed", "source": "system", "expectedPhase": "ended", "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "verification-fields-must-complete",
+      "covers": ["identity_verification", "case_disclosure"],
+      "turns": [
+        {"user": "Sí, soy yo.", "intent": "identity_confirmed", "verificationFields": [], "expectedPhase": "identity_verification", "expectedDirective": "verify_remaining_identity_fields"},
+        {"user": "Soy Javier Pérez.", "intent": "identity_confirmed", "verificationFields": ["name_and_first_surname"], "expectedPhase": "identity_verification", "expectedDirective": "verify_remaining_identity_fields"},
+        {"user": "Soy el director general.", "intent": "identity_confirmed", "verificationFields": ["role"], "expectedPhase": "case_disclosure", "expectedDirective": "disclose_case_and_ask_recognition"}
+      ]
+    },
+    {
+      "id": "case-review-from-objection",
+      "covers": ["objection_handling", "confirmation", "ended"],
+      "turns": [
+        {"user": "Soy Javier Pérez y soy la persona responsable.", "intent": "identity_confirmed", "verificationFields": ["role", "name_and_first_surname"], "expectedPhase": "case_disclosure"},
+        {"user": "No puede ser porque el servicio falló.", "intent": "objection_provided", "objectionType": "service_failure", "expectedPhase": "objection_handling"},
+        {"user": "Sí, revíselo.", "intent": "outcome_confirmed", "resolutionType": "case_review", "expectedPhase": "ended", "expectedDirective": "confirm_outcome_and_close", "expectedShouldEnd": true}
       ]
     },
     {

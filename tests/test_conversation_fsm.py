@@ -35,6 +35,7 @@ def case_fixture(
             "immediate_payment",
             "payment_date",
             "payment_plan",
+            "case_review",
         ],
     }
 
@@ -53,7 +54,10 @@ class ConversationFSMTests(unittest.TestCase):
 
     def verify_identity(self) -> None:
         self.advance(TurnIntent.CALL_STARTED, source="system")
-        self.advance(TurnIntent.IDENTITY_CONFIRMED)
+        self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=list(DEFAULT_POLICY["verification_fields"]),
+        )
 
     def test_opening_moves_to_identity_verification(self) -> None:
         state = self.advance(TurnIntent.CALL_STARTED, source="system")
@@ -82,6 +86,34 @@ class ConversationFSMTests(unittest.TestCase):
         self.assertTrue(self.state["identity_verified"])
         self.assertEqual(self.state["phase"], CallPhase.CASE_DISCLOSURE.value)
         self.assertIn("case", response_context(self.state))
+
+    def test_identity_gate_waits_for_every_configured_field(self) -> None:
+        self.advance(TurnIntent.CALL_STARTED, source="system")
+
+        bare_confirmation = self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=[],
+        )
+        self.assertFalse(bare_confirmation["identity_verified"])
+        self.assertEqual(
+            bare_confirmation["response_directive"],
+            "verify_remaining_identity_fields",
+        )
+
+        partial = self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=["name_and_first_surname"],
+        )
+        self.assertFalse(partial["identity_verified"])
+        self.assertEqual(partial["verified_fields"], ["name_and_first_surname"])
+        self.assertNotIn("case", response_context(partial))
+
+        complete = self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=["role"],
+        )
+        self.assertTrue(complete["identity_verified"])
+        self.assertEqual(complete["phase"], CallPhase.CASE_DISCLOSURE.value)
 
     def test_invariant_blocks_sensitive_phase_without_identity(self) -> None:
         self.state["phase"] = CallPhase.CASE_DISCLOSURE.value
@@ -143,6 +175,50 @@ class ConversationFSMTests(unittest.TestCase):
         state = self.advance(TurnIntent.OUTCOME_CONFIRMED)
 
         self.assertEqual(state["phase"], CallPhase.ENDED.value)
+        self.assertTrue(state["should_end"])
+
+    def test_immediate_payment_directive_forbids_credential_request(self) -> None:
+        self.verify_identity()
+        self.advance(TurnIntent.RECOGNIZES_CASE)
+        state = self.advance(
+            TurnIntent.RESOLUTION_SELECTED,
+            resolution_type="immediate_payment",
+        )
+
+        self.assertEqual(state["phase"], CallPhase.CONFIRMATION.value)
+        self.assertEqual(
+            state["response_directive"],
+            "confirm_immediate_payment_commitment_without_requesting_payment_credentials",
+        )
+
+    def test_case_review_can_be_selected_directly_from_objection_handling(self) -> None:
+        self.verify_identity()
+        self.advance(TurnIntent.DISPUTES_CASE)
+
+        state = self.advance(
+            TurnIntent.RESOLUTION_SELECTED,
+            resolution_type="case_review",
+        )
+
+        self.assertEqual(state["phase"], CallPhase.CONFIRMATION.value)
+        self.assertEqual(state["resolution_type"], "case_review")
+        self.assertEqual(
+            state["response_directive"],
+            "confirm_case_review_request_without_claiming_execution",
+        )
+
+    def test_contextual_case_review_confirmation_closes_from_objection(self) -> None:
+        self.verify_identity()
+        self.advance(TurnIntent.DISPUTES_CASE)
+
+        state = self.advance(
+            TurnIntent.OUTCOME_CONFIRMED,
+            resolution_type="case_review",
+        )
+
+        self.assertEqual(state["phase"], CallPhase.ENDED.value)
+        self.assertEqual(state["resolution_type"], "case_review")
+        self.assertEqual(state["response_directive"], "confirm_outcome_and_close")
         self.assertTrue(state["should_end"])
 
     def test_explicit_termination_ends_from_every_phase(self) -> None:
@@ -223,7 +299,10 @@ class ConversationFSMTests(unittest.TestCase):
 
     def test_transition_history_is_auditable(self) -> None:
         self.advance(TurnIntent.CALL_STARTED, source="system")
-        self.advance(TurnIntent.IDENTITY_CONFIRMED)
+        self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=list(DEFAULT_POLICY["verification_fields"]),
+        )
 
         self.assertEqual(len(self.state["transition_history"]), 2)
         self.assertEqual(

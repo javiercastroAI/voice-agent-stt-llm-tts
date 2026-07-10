@@ -139,7 +139,11 @@ class TranscriptStore:
         event_type = str(event.get("type", ""))
         turn_id = str(event.get("turnId", "") or "")
         with self._lock:
-            if event_type in {"fsm_transition", "assistant_response"}:
+            if event_type in {
+                "fsm_transition",
+                "assistant_response",
+                "turn_superseded",
+            }:
                 self._fsm_events.append(dict(event))
             if event_type == "fsm_transition":
                 transition = {
@@ -156,6 +160,7 @@ class TranscriptStore:
                     "should_end": bool(event.get("shouldEnd", False)),
                     "interpreter": event.get("interpreter"),
                     "response_recorded": False,
+                    "response_disposition": "pending",
                 }
                 self._fsm_transitions.append(transition)
                 self._fsm_transitions = self._fsm_transitions[-100:]
@@ -174,6 +179,12 @@ class TranscriptStore:
                 for transition in reversed(self._fsm_transitions):
                     if transition["turn_id"] == turn_id:
                         transition["response_recorded"] = True
+                        transition["response_disposition"] = "recorded"
+                        break
+            elif event_type == "turn_superseded" and turn_id:
+                for transition in reversed(self._fsm_transitions):
+                    if transition["turn_id"] == turn_id:
+                        transition["response_disposition"] = "coalesced"
                         break
             self._call_assessment = assess_call(
                 events=self._fsm_events,
@@ -1206,7 +1217,11 @@ def _build_html() -> str:
             <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>0/0</span>
           </div>
           <div class="assessment-check">
-            <span class="assessment-check-label">Script adherence</span>
+            <span class="assessment-check-label">FSM adherence</span>
+            <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
+          </div>
+          <div class="assessment-check">
+            <span class="assessment-check-label">Conversation quality</span>
             <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
           </div>
         </div>
@@ -1483,7 +1498,7 @@ def _build_html() -> str:
             <div class="fsm-transition-primary">${escapeHtml(displayToken(item.directive))}</div>
             <div class="fsm-transition-secondary">${escapeHtml(displayToken(item.guard_reason, item.should_end ? "terminal" : "guard clear"))}</div>
           </div>
-          <span class="fsm-evidence${item.response_recorded ? " is-recorded" : ""}" title="${item.response_recorded ? "Assistant response recorded" : "Awaiting assistant response"}"></span>
+          <span class="fsm-evidence${item.response_recorded || item.response_disposition === "coalesced" ? " is-recorded" : ""}" title="${item.response_recorded ? "Assistant response recorded" : item.response_disposition === "coalesced" ? "Turn coalesced into the next user turn" : "Awaiting assistant response"}"></span>
         </div>
       `).join("");
       if (wasAtBottom || trail.length <= 4) timeline.scrollTop = timeline.scrollHeight;

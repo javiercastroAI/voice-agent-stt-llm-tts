@@ -32,6 +32,11 @@ class QueueInterpreter:
     async def interpret(self, transcript, state):
         self.calls.append((transcript, state["phase"]))
         intent = self.intents.pop(0)
+        if intent is TurnIntent.IDENTITY_CONFIRMED:
+            return make_turn_event(
+                intent,
+                verification_fields=list(state["policy"]["verification_fields"]),
+            )
         if intent is TurnIntent.RESOLUTION_SELECTED:
             return make_turn_event(intent, resolution_type="payment")
         return make_turn_event(intent)
@@ -96,6 +101,45 @@ class ConversationControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Estoy comprobando el sistema. Ah, de acuerdo.", control)
         self.assertIn("never simulate a background lookup", control)
         self.assertIn("in this same response", control)
+
+    async def test_runtime_message_forbids_caller_supplied_payment_destination(self) -> None:
+        controller = ConversationController(
+            case=case_fixture(),
+            interpreter=QueueInterpreter(TurnIntent.UNKNOWN),
+        )
+        controller._state["case"]["locale"] = "es-ES"
+
+        control = build_runtime_control_message(controller.state)
+
+        self.assertIn("cuenta de destino pertenece al acreedor", control)
+        self.assertIn("nunca pregunte al interlocutor en qué cuenta quiere pagar", control)
+        self.assertIn("confirme el compromiso de pago inmediato con naturalidad", control)
+        self.assertIn("contacte con `creditor_name` por sus canales oficiales", control)
+        self.assertNotIn("datos de ejecución no están disponibles", control)
+
+    async def test_english_payment_guard_avoids_availability_disclaimer(self) -> None:
+        controller = ConversationController(
+            case=case_fixture(),
+            interpreter=QueueInterpreter(TurnIntent.UNKNOWN),
+        )
+
+        control = build_runtime_control_message(controller.state)
+
+        self.assertIn("confirm the immediate-payment commitment naturally", control)
+        self.assertIn("contact `creditor_name` through its official channels", control)
+        self.assertNotIn("execution details are unavailable", control)
+
+    async def test_runtime_message_defines_case_review_as_recording_only(self) -> None:
+        controller = ConversationController(
+            case=case_fixture(),
+            interpreter=QueueInterpreter(TurnIntent.UNKNOWN),
+        )
+
+        control = build_runtime_control_message(controller.state)
+
+        self.assertIn("means recording the caller's request", control)
+        self.assertIn("Never say you are checking, reviewing, fixing", control)
+        self.assertIn("Do not offer payment alternatives", control)
 
     async def test_post_terminal_turn_is_rejected_without_interpretation(self) -> None:
         interpreter = QueueInterpreter(

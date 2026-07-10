@@ -30,9 +30,11 @@ class ConversationTraceLogger:
         *,
         write: Writer | None = None,
         store: TranscriptStore | None = None,
+        on_agent_text_finalized: Writer | None = None,
     ) -> None:
         self._write = write or self._default_write
         self._store = store
+        self._on_agent_text_finalized = on_agent_text_finalized
         self._seen_assistant_ids: set[str] = set()
         self._last_diarized_user_text: str | None = None
         self._streaming_agent_text = ""
@@ -135,11 +137,14 @@ class ConversationTraceLogger:
         if not self._streaming_agent_text:
             return
 
-        self._last_streamed_agent_text = self._normalize(self._streaming_agent_text)
+        finalized_text = self._streaming_agent_text.strip()
+        self._last_streamed_agent_text = self._normalize(finalized_text)
         self._streaming_agent_text = ""
         self._write("\n")
         if self._store is not None:
             self._store.finalize_agent_stream()
+        if self._on_agent_text_finalized is not None and finalized_text:
+            self._on_agent_text_finalized(finalized_text)
 
     @staticmethod
     def _normalize(text: str) -> str:

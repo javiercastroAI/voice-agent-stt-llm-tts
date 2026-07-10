@@ -10,7 +10,9 @@ from unittest.mock import Mock, patch
 from voice_agent.app import (
     build_web_metadata,
     build_worker_options,
+    close_console_session,
     entrypoint,
+    FINAL_DASHBOARD_SYNC_SECONDS,
     main,
     open_console_dashboard,
     request_console_process_exit,
@@ -84,6 +86,25 @@ class AppTests(unittest.TestCase):
         self.assertTrue(timer.daemon)
         timer.start.assert_called_once_with()
         raise_signal.assert_called_once_with(signal.SIGINT)
+
+    def test_console_close_waits_one_poll_before_server_and_process_exit(self) -> None:
+        calls: list[str] = []
+        finalize_transcript = Mock(side_effect=lambda: calls.append("flush"))
+        wait = Mock(side_effect=lambda _seconds: calls.append("wait"))
+        web_server = SimpleNamespace(close=Mock(side_effect=lambda: calls.append("close")))
+        console_exit = Mock(side_effect=lambda: calls.append("exit"))
+
+        close_console_session(
+            web_server=web_server,
+            console_exit=console_exit,
+            finalize_transcript=finalize_transcript,
+            wait=wait,
+        )
+
+        finalize_transcript.assert_called_once_with()
+        wait.assert_called_once_with(FINAL_DASHBOARD_SYNC_SECONDS)
+        self.assertGreater(FINAL_DASHBOARD_SYNC_SECONDS, 0.35)
+        self.assertEqual(calls, ["flush", "wait", "close", "exit"])
 
     def test_build_worker_options_uses_console_defaults_without_livekit_credentials(self) -> None:
         config = AgentConfig.from_env(
@@ -245,6 +266,8 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
         fake_session.shutdown.assert_called_once_with(drain=True)
 
         close_handler = fake_session.handlers["close"][0]
-        close_handler(None)
+        with patch("voice_agent.app.time.sleep") as dashboard_wait:
+            close_handler(None)
+        dashboard_wait.assert_called_once_with(FINAL_DASHBOARD_SYNC_SECONDS)
         fake_web_server.close.assert_called_once_with()
         console_exit.assert_called_once_with()

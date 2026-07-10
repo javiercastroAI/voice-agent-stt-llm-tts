@@ -12,8 +12,11 @@ from voice_agent.conversation_fsm import (
 from voice_agent.intent_interpreter import (
     InterpretedTurn,
     OpenAIIntentInterpreter,
+    is_clear_case_dispute,
     is_explicit_termination,
+    is_contextual_case_review_acceptance,
     is_contextual_outcome_confirmation,
+    is_payment_refusal,
 )
 
 
@@ -38,6 +41,19 @@ def verification_state():
         create_initial_state(case_fixture()),
         make_turn_event(TurnIntent.CALL_STARTED, source="system"),
     )
+
+
+def objection_state():
+    fsm = ConversationFSM()
+    state = verification_state()
+    state = fsm.advance(
+        state,
+        make_turn_event(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=["role", "name_and_first_surname"],
+        ),
+    )
+    return fsm.advance(state, make_turn_event(TurnIntent.DISPUTES_CASE))
 
 
 class FakeResponses:
@@ -73,14 +89,19 @@ class OpenAIIntentInterpreterTests(unittest.IsolatedAsyncioTestCase):
                 intent=TurnIntent.IDENTITY_CONFIRMED,
                 objection_type=None,
                 resolution_type=None,
+                verified_fields=["role", "name_and_first_surname", "invented_field"],
             )
         )
         event = await self.build_interpreter(responses).interpret(
-            "Yes, I am responsible for the account.",
+            "My name is Javier Pérez and I am the managing director.",
             verification_state(),
         )
 
         self.assertEqual(event["intent"], TurnIntent.IDENTITY_CONFIRMED.value)
+        self.assertEqual(
+            event["verification_fields"],
+            ["role", "name_and_first_surname"],
+        )
         self.assertEqual(event["evidence"]["interpreter"], "openai_structured_output")
         request = responses.calls[0]
         self.assertFalse(request["store"])
@@ -95,6 +116,22 @@ class OpenAIIntentInterpreterTests(unittest.IsolatedAsyncioTestCase):
             "private outstanding charge",
         ):
             self.assertNotIn(sensitive_value, serialized_input)
+
+    async def test_bare_identity_confirmation_cannot_invent_verification_fields(self) -> None:
+        responses = FakeResponses(
+            InterpretedTurn(
+                intent=TurnIntent.IDENTITY_CONFIRMED,
+                verified_fields=["role", "name_and_first_surname"],
+            )
+        )
+
+        event = await self.build_interpreter(responses).interpret(
+            "Sí, soy yo.",
+            verification_state(),
+        )
+
+        self.assertEqual(event["intent"], TurnIntent.IDENTITY_CONFIRMED.value)
+        self.assertEqual(event["verification_fields"], [])
 
     async def test_api_error_fails_closed_to_unknown(self) -> None:
         responses = FakeResponses(error=RuntimeError("provider unavailable"))
@@ -139,6 +176,85 @@ class OpenAIIntentInterpreterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(
             is_contextual_outcome_confirmation("Todo correcto", verification_state())
         )
+
+    async def test_payment_refusal_variants_bypass_model(self) -> None:
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+        state = objection_state()
+
+        for transcript in (
+            "No voy a pagar.",
+            "Ya te he dicho que no pienso pagar.",
+            "Non voi a pagar.",
+            "Novojapar.",
+            "I refuse to pay.",
+        ):
+            event = await self.build_interpreter(responses).interpret(transcript, state)
+            self.assertEqual(event["intent"], TurnIntent.REFUSAL.value)
+            self.assertEqual(
+                event["evidence"]["interpreter"],
+                "deterministic_payment_refusal_guard",
+            )
+        self.assertEqual(responses.calls, [])
+
+    async def test_contextual_case_review_acceptance_bypasses_model(self) -> None:
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+        state = objection_state()
+
+        for transcript in ("Sí.", "Sí, revíselo.", "Review it."):
+            event = await self.build_interpreter(responses).interpret(transcript, state)
+            self.assertEqual(event["intent"], TurnIntent.OUTCOME_CONFIRMED.value)
+            self.assertEqual(event["resolution_type"], "case_review")
+        self.assertEqual(responses.calls, [])
+
+    async def test_extended_case_review_confirmations_bypass_model(self) -> None:
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+        state = objection_state()
+
+        for transcript in (
+            "Es correcto, correctísimo, diría yo.",
+            "Claro.",
+            "Sí, claro, ya se lo he dicho.",
+        ):
+            event = await self.build_interpreter(responses).interpret(transcript, state)
+            self.assertEqual(event["intent"], TurnIntent.OUTCOME_CONFIRMED.value)
+            self.assertEqual(event["resolution_type"], "case_review")
+        self.assertEqual(responses.calls, [])
+
+    async def test_bare_responsible_party_answer_does_not_count_as_refusal(self) -> None:
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+
+        event = await self.build_interpreter(responses).interpret(
+            "Habla con la persona responsable.",
+            verification_state(),
+        )
+
+        self.assertEqual(event["intent"], TurnIntent.IDENTITY_CONFIRMED.value)
+        self.assertEqual(event["verification_fields"], [])
+        self.assertEqual(event["evidence"]["interpreter"], "deterministic_identity_guard")
+        self.assertEqual(responses.calls, [])
+
+    async def test_clear_case_dispute_bypasses_model(self) -> None:
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+        state = objection_state()
+
+        event = await self.build_interpreter(responses).interpret(
+            "Pero no puede ser.",
+            state,
+        )
+
+        self.assertEqual(event["intent"], TurnIntent.DISPUTES_CASE.value)
+        self.assertEqual(
+            event["evidence"]["interpreter"],
+            "deterministic_dispute_guard",
+        )
+        self.assertEqual(responses.calls, [])
+
+    def test_contextual_guards_are_phase_scoped(self) -> None:
+        state = verification_state()
+
+        self.assertFalse(is_payment_refusal("No voy a pagar", state))
+        self.assertFalse(is_contextual_case_review_acceptance("Sí", state))
+        self.assertFalse(is_clear_case_dispute("No puede ser", state))
 
 
 if __name__ == "__main__":

@@ -175,6 +175,33 @@ class TranscriptStoreTests(unittest.TestCase):
         self.assertEqual(len(snapshot["fsm_transitions"]), 100)
         self.assertEqual(snapshot["fsm_transitions"][0]["turn_id"], "turn-5")
 
+    def test_snapshot_marks_superseded_transition_as_coalesced(self) -> None:
+        store = TranscriptStore()
+        store.add_fsm_event(
+            {
+                "type": "fsm_transition",
+                "turnId": "turn-1",
+                "fromPhase": "resolution",
+                "toPhase": "resolution",
+                "interpretedIntent": "unknown",
+                "directive": "clarify_resolution",
+            }
+        )
+        store.add_fsm_event(
+            {
+                "type": "turn_superseded",
+                "turnId": "turn-1",
+                "supersedeReason": "new_user_turn_before_assistant_response",
+            }
+        )
+
+        snapshot = store.snapshot()
+
+        self.assertEqual(
+            snapshot["fsm_transitions"][0]["response_disposition"],
+            "coalesced",
+        )
+
 
 class TranscriptWebServerTests(unittest.TestCase):
     def test_server_exposes_default_url_and_html_template(self) -> None:

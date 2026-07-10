@@ -75,7 +75,7 @@ if isinstance(fsm_trace_schema, dict):
     if fsm_trace_schema.get("additionalProperties") is not False:
         fail("specs/system/fsm-trace.schema.json: additional properties must be forbidden")
     trace_types = fsm_trace_schema.get("properties", {}).get("type", {}).get("enum", [])
-    for event_type in ["fsm_transition", "assistant_response"]:
+    for event_type in ["fsm_transition", "assistant_response", "turn_superseded"]:
         if event_type not in trace_types:
             fail(f"specs/system/fsm-trace.schema.json: type enum must include {event_type}")
 

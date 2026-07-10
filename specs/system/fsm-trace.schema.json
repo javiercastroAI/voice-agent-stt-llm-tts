@@ -7,7 +7,7 @@
   "required": ["version", "type", "callId", "turnId", "recordedAt"],
   "properties": {
     "version": {"const": 1},
-    "type": {"enum": ["fsm_transition", "assistant_response"]},
+    "type": {"enum": ["fsm_transition", "assistant_response", "turn_superseded"]},
     "callId": {"type": "string", "minLength": 1},
     "turnId": {"type": "string", "minLength": 1},
     "recordedAt": {"type": "string", "format": "date-time"},
@@ -18,11 +18,13 @@
     "directive": {"type": "string"},
     "guardReason": {"type": ["string", "null"]},
     "identityVerified": {"type": "boolean"},
+    "verifiedFields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "refusalCount": {"type": "integer", "minimum": 0},
     "resolutionType": {"type": ["string", "null"]},
     "shouldEnd": {"type": "boolean"},
     "interpreter": {"type": ["string", "null"]},
     "assistantText": {"type": "string"},
-    "conversationItemId": {"type": ["string", "null"]}
+    "conversationItemId": {"type": ["string", "null"]},
+    "supersedeReason": {"type": "string"}
   }
 }

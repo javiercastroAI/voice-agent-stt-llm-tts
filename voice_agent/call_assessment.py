@@ -24,7 +24,25 @@ _IMPROVEMENTS = {
     "unsupported_numeric_claim": "Ground every numeric claim in the validated case context.",
     "persuasion_after_close_directive": "End with one farewell and do not ask another question.",
     "interpreter_fallback": "Review intent-interpreter reliability for the affected turn.",
+    "repeated_persuasion_after_refusal": "End the call after the configured refusal limit instead of repeating persuasion.",
+    "simulated_case_review": "Confirm that the review request was recorded without claiming an unequipped review ran.",
+    "stalled_dialogue_loop": "Stop repeating the same phase and directive; resolve or close the proposed outcome.",
+    "repetitive_response_loop": "Do not repeat the same confirmation question after the caller has answered it.",
+    "premature_resolution_claim": "Do not claim a review request was recorded before the caller selects it.",
+    "case_review_confirmation_mismatch": "Keep case-review confirmation focused on the review request and omit payment options.",
 }
+
+_QUALITY_FINDING_CODES = frozenset(
+    {
+        "interpreter_fallback",
+        "repeated_persuasion_after_refusal",
+        "simulated_case_review",
+        "stalled_dialogue_loop",
+        "repetitive_response_loop",
+        "premature_resolution_claim",
+        "case_review_confirmation_mismatch",
+    }
+)
 
 
 def assess_call(
@@ -37,8 +55,15 @@ def assess_call(
     """Return a dashboard-ready verdict without probabilistic judgment."""
 
     trail = [dict(item) for item in transitions]
-    recorded_responses = sum(bool(item.get("response_recorded")) for item in trail)
+    required_trail = [
+        item for item in trail if item.get("response_disposition") != "coalesced"
+    ]
+    recorded_responses = sum(
+        bool(item.get("response_recorded")) for item in required_trail
+    )
+    coalesced_turns = len(trail) - len(required_trail)
     total_transitions = len(trail)
+    required_responses = len(required_trail)
     phase = str(fsm_state.get("phase") or "awaiting_start")
     terminal = phase == "ended" and bool(fsm_state.get("should_end"))
     terminal_response_recorded = bool(
@@ -53,8 +78,11 @@ def assess_call(
             satisfactory=None,
             terminal=terminal,
             recorded_responses=recorded_responses,
-            total_transitions=total_transitions,
+            required_responses=required_responses,
+            evaluated_turns=total_transitions,
+            coalesced_turns=coalesced_turns,
             adherence_status="not_evaluated",
+            quality_status="not_evaluated",
             improvements=(),
             findings=(),
         )
@@ -67,8 +95,11 @@ def assess_call(
             satisfactory=None,
             terminal=True,
             recorded_responses=recorded_responses,
-            total_transitions=total_transitions,
+            required_responses=required_responses,
+            evaluated_turns=total_transitions,
+            coalesced_turns=coalesced_turns,
             adherence_status="pending",
+            quality_status="pending",
             improvements=(),
             findings=(),
         )
@@ -81,27 +112,41 @@ def assess_call(
             satisfactory=False,
             terminal=True,
             recorded_responses=recorded_responses,
-            total_transitions=total_transitions,
+            required_responses=required_responses,
+            evaluated_turns=total_transitions,
+            coalesced_turns=coalesced_turns,
             adherence_status="not_evaluated",
+            quality_status="not_evaluated",
             improvements=("Load the validated runtime case before starting the dashboard.",),
             findings=(),
         )
 
     report = evaluate_trace([dict(event) for event in events], case=case)
-    status = report.status
+    quality_findings = tuple(
+        finding for finding in report.findings if finding.code in _QUALITY_FINDING_CODES
+    )
+    structural_findings = tuple(
+        finding for finding in report.findings if finding.code not in _QUALITY_FINDING_CODES
+    )
+    adherence_status = _finding_status(structural_findings)
+    quality_status = _finding_status(quality_findings)
+    status = max(
+        (adherence_status, quality_status),
+        key={"pass": 0, "warn": 1, "fail": 2}.__getitem__,
+    )
     label = {
         "pass": "Satisfactory",
         "warn": "Needs review",
         "fail": "Unsatisfactory",
     }[status]
     summary = {
-        "pass": "The call finished the FSM and passed all deterministic adherence checks.",
-        "warn": "The call finished, but one or more non-blocking adherence warnings need review.",
-        "fail": "The call finished, but one or more deterministic adherence checks failed.",
+        "pass": "The call passed both structural FSM adherence and conversational-quality checks.",
+        "warn": "The call finished, but one or more deterministic warnings need review.",
+        "fail": "The call finished, but structural adherence or conversational quality failed.",
     }[status]
     improvements = _finding_improvements(report.findings)
     if status == "pass":
-        improvements = ("No FSM adherence improvements are required for this call.",)
+        improvements = ("No structural or conversational-quality improvements are required for this call.",)
 
     return _assessment(
         status=status,
@@ -110,8 +155,11 @@ def assess_call(
         satisfactory=status == "pass",
         terminal=True,
         recorded_responses=recorded_responses,
-        total_transitions=total_transitions,
-        adherence_status=status,
+        required_responses=required_responses,
+        evaluated_turns=total_transitions,
+        coalesced_turns=coalesced_turns,
+        adherence_status=adherence_status,
+        quality_status=quality_status,
         improvements=improvements,
         findings=tuple(finding.as_dict() for finding in report.findings),
     )
@@ -131,6 +179,14 @@ def _finding_improvements(
     return tuple(actions)
 
 
+def _finding_status(findings: Sequence[AdherenceFinding]) -> str:
+    if any(finding.severity == "fail" for finding in findings):
+        return "fail"
+    if findings:
+        return "warn"
+    return "pass"
+
+
 def _assessment(
     *,
     status: str,
@@ -139,14 +195,17 @@ def _assessment(
     satisfactory: bool | None,
     terminal: bool,
     recorded_responses: int,
-    total_transitions: int,
+    required_responses: int,
+    evaluated_turns: int,
+    coalesced_turns: int,
     adherence_status: str,
+    quality_status: str,
     improvements: Sequence[str],
     findings: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     response_status = (
         "pass"
-        if total_transitions > 0 and recorded_responses == total_transitions
+        if required_responses > 0 and recorded_responses == required_responses
         else "pending" if status in {"in_progress", "finalizing"} else "fail"
     )
     return {
@@ -156,9 +215,12 @@ def _assessment(
         "satisfactory": satisfactory,
         "terminal": terminal,
         "adherence_status": adherence_status,
-        "evaluated_turns": total_transitions,
+        "conversation_quality_status": quality_status,
+        "evaluated_turns": evaluated_turns,
         "recorded_responses": recorded_responses,
-        "response_coverage": f"{recorded_responses}/{total_transitions}",
+        "required_responses": required_responses,
+        "coalesced_turns": coalesced_turns,
+        "response_coverage": f"{recorded_responses}/{required_responses}",
         "evidence": [
             {
                 "label": "FSM terminal",
@@ -168,12 +230,20 @@ def _assessment(
             {
                 "label": "Response evidence",
                 "status": response_status,
-                "value": f"{recorded_responses}/{total_transitions}",
+                "value": (
+                    f"{recorded_responses}/{required_responses}"
+                    + (f" · {coalesced_turns} coalesced" if coalesced_turns else "")
+                ),
             },
             {
-                "label": "Script adherence",
+                "label": "FSM adherence",
                 "status": adherence_status,
                 "value": adherence_status.replace("_", " "),
+            },
+            {
+                "label": "Conversation quality",
+                "status": quality_status,
+                "value": quality_status.replace("_", " "),
             },
         ],
         "improvements": list(improvements),

@@ -71,6 +71,7 @@ class FSMTraceRecorderTests(unittest.TestCase):
         fsm, state = started_state()
         event = make_turn_event(
             TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=["role", "name_and_first_surname"],
             evidence={"interpreter": "openai_structured_output"},
         )
         state = fsm.advance(state, event)
@@ -86,6 +87,10 @@ class FSMTraceRecorderTests(unittest.TestCase):
         self.assertEqual(transition["fromPhase"], "identity_verification")
         self.assertEqual(transition["toPhase"], "case_disclosure")
         self.assertTrue(transition["identityVerified"])
+        self.assertEqual(
+            transition["verifiedFields"],
+            ["role", "name_and_first_surname"],
+        )
         self.assertEqual(transition["interpreter"], "openai_structured_output")
 
     def test_deduplicates_conversation_items(self) -> None:
@@ -107,6 +112,87 @@ class FSMTraceRecorderTests(unittest.TestCase):
             len([entry for entry in recorder.events if entry["type"] == "assistant_response"]),
             1,
         )
+
+    def test_records_streamed_terminal_response_and_deduplicates_late_item(self) -> None:
+        fsm, state = started_state()
+        terminal_event = make_turn_event(TurnIntent.EXPLICIT_TERMINATION)
+        state = fsm.advance(state, terminal_event)
+        recorder = self.recorder()
+        turn_id = recorder.record_transition(
+            user_transcript="Goodbye.",
+            event=terminal_event,
+            state=state,
+        )
+
+        streamed_turn_id = recorder.record_streamed_terminal_response("Thank you. Goodbye.")
+        late_item = SimpleNamespace(
+            type="message",
+            role="assistant",
+            id="message-terminal",
+            text_content="Thank you. Goodbye.",
+        )
+        duplicate_result = recorder.record_conversation_item(SimpleNamespace(item=late_item))
+
+        self.assertEqual(streamed_turn_id, turn_id)
+        self.assertIsNone(duplicate_result)
+        self.assertEqual(
+            len([entry for entry in recorder.events if entry["type"] == "assistant_response"]),
+            1,
+        )
+
+    def test_ignores_streamed_non_terminal_response(self) -> None:
+        _, state = started_state()
+        recorder = self.recorder()
+        recorder.record_opening(state)
+
+        self.assertIsNone(recorder.record_streamed_terminal_response("Opening response"))
+        self.assertEqual([event["type"] for event in recorder.events], ["fsm_transition"])
+
+    def test_records_last_assistant_message_from_completed_terminal_speech(self) -> None:
+        fsm, state = started_state()
+        terminal_event = make_turn_event(TurnIntent.EXPLICIT_TERMINATION)
+        state = fsm.advance(state, terminal_event)
+        recorder = self.recorder()
+        turn_id = recorder.record_transition(
+            user_transcript="Goodbye.",
+            event=terminal_event,
+            state=state,
+        )
+        speech_handle = SimpleNamespace(
+            chat_items=[
+                SimpleNamespace(type="function_call", role=None, text_content=""),
+                SimpleNamespace(
+                    type="message",
+                    role="assistant",
+                    text_content="Thank you for your time. Goodbye.",
+                ),
+            ]
+        )
+
+        recorded_turn = recorder.record_terminal_speech_handle(speech_handle)
+
+        self.assertEqual(recorded_turn, turn_id)
+        self.assertEqual(recorder.events[-1]["assistantText"], "Thank you for your time. Goodbye.")
+
+    def test_new_turn_coalesces_older_unreplied_transition(self) -> None:
+        fsm, state = started_state()
+        recorder = self.recorder()
+        opening_turn = recorder.record_opening(state)
+        event = make_turn_event(TurnIntent.IDENTITY_CONFIRMED)
+        state = fsm.advance(state, event)
+
+        latest_turn = recorder.record_transition(
+            user_transcript="Javier, director.",
+            event=event,
+            state=state,
+        )
+        response_turn = recorder.record_assistant_response("Thank you, Javier.")
+
+        superseded = next(
+            item for item in recorder.events if item["type"] == "turn_superseded"
+        )
+        self.assertEqual(superseded["turnId"], opening_turn)
+        self.assertEqual(response_turn, latest_turn)
 
     def test_writes_jsonl(self) -> None:
         _, state = started_state()

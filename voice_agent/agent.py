@@ -17,7 +17,11 @@ from .conversation_controller import (
 from .diarized_stt import DiarizedTranscript, OpenAIDiarizedSTT
 from .intent_interpreter import OpenAIIntentInterpreter
 from .fsm_trace import FSMTraceRecorder
-from .hangup import TERMINAL_FAREWELL_INSTRUCTIONS, TerminalEndCallTool
+from .hangup import (
+    TERMINAL_FAREWELL_INSTRUCTIONS,
+    TerminalEndCallTool,
+    build_terminal_farewell,
+)
 
 _PLUGIN_IMPORT_ERROR: ModuleNotFoundError | None = None
 
@@ -127,6 +131,11 @@ class AssistantAgent(Agent):
             delete_room=delete_room_on_hangup,
             end_instructions=TERMINAL_FAREWELL_INSTRUCTIONS,
             on_tool_called=self._on_end_call_tool_called,
+            on_terminal_speech_done=(
+                self._fsm_trace_recorder.record_terminal_speech_handle
+                if self._fsm_trace_recorder is not None
+                else None
+            ),
         )
 
         super().__init__(
@@ -192,6 +201,19 @@ class AssistantAgent(Agent):
                 event=self._conversation_controller.last_event,
                 state=state,
             )
+        if state["should_end"]:
+            farewell = build_terminal_farewell(state)
+            speech_handle = self.session.say(
+                farewell,
+                allow_interruptions=False,
+                add_to_chat_ctx=True,
+            )
+            self._terminal_farewell_started = True
+            if self._fsm_trace_recorder is not None:
+                speech_handle.add_done_callback(
+                    self._fsm_trace_recorder.record_terminal_speech_handle
+                )
+            raise StopResponse()
         turn_ctx.add_message(
             role="system",
             content=build_runtime_control_message(state),

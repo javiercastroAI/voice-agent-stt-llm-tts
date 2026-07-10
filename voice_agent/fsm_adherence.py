@@ -91,6 +91,7 @@ ALLOWED_PHASE_TRANSITIONS = {
     CallPhase.OBJECTION_HANDLING.value: {
         CallPhase.OBJECTION_HANDLING.value,
         CallPhase.RESOLUTION.value,
+        CallPhase.CONFIRMATION.value,
         CallPhase.ESCALATION.value,
         CallPhase.ENDED.value,
     },
@@ -131,6 +132,27 @@ _PERSUASION_MARKERS = (
     "algo mas que desee discutir",
 )
 
+_ORDERED_LIST_MARKER = re.compile(r"(?m)^\s*\d+[.):]\s+")
+
+_PAYMENT_REFUSAL_TRACE_PATTERNS = (
+    r"\bno\s+(?:voy|pienso|quiero)\s+(?:a\s+)?pagar\b",
+    r"\bno\s+pagare\b",
+    r"\bme\s+niego\s+a\s+pagar\b",
+    r"\b(?:i\s+will\s+not|i\s+won\s+t|i\s+refuse\s+to)\s+pay\b",
+)
+
+_SIMULATED_CASE_REVIEW_MARKERS = (
+    "estoy revisando",
+    "voy a revisar",
+    "revisaremos el caso",
+    "procederemos con la revision",
+    "mientras se revisa",
+    "while the case is reviewed",
+    "i am reviewing",
+    "i will review",
+    "we will review the case",
+)
+
 
 def load_jsonl_events(path: str | Path) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
@@ -156,6 +178,7 @@ def evaluate_trace(
     event_list = list(events)
     findings: list[AdherenceFinding] = []
     transitions: list[dict[str, Any]] = []
+    superseded_turn_ids: set[str] = set()
     responses_by_turn: dict[str, list[dict[str, Any]]] = {}
 
     for event in event_list:
@@ -176,6 +199,8 @@ def evaluate_trace(
             transitions.append(event)
         elif event_type == "assistant_response":
             responses_by_turn.setdefault(turn_id, []).append(event)
+        elif event_type == "turn_superseded":
+            superseded_turn_ids.add(turn_id)
         else:
             findings.append(
                 AdherenceFinding(
@@ -187,6 +212,15 @@ def evaluate_trace(
             )
 
     transition_ids = {str(event["turnId"]) for event in transitions}
+    for turn_id in superseded_turn_ids - transition_ids:
+        findings.append(
+            AdherenceFinding(
+                "orphan_superseded_turn",
+                "fail",
+                "Superseded turn has no matching FSM transition.",
+                turn_id=turn_id,
+            )
+        )
     for turn_id in responses_by_turn:
         if turn_id not in transition_ids:
             findings.append(
@@ -199,6 +233,9 @@ def evaluate_trace(
             )
 
     previous_to_phase_by_call: dict[str, str] = {}
+    payment_refusals_by_call: dict[str, int] = {}
+    previous_response_signature_by_call: dict[str, tuple[str, str, str, str]] = {}
+    stalled_directive_by_call: dict[str, tuple[str, str, int]] = {}
     phase_coverage: set[str] = set()
     guard_coverage: set[str] = set()
     sensitive_values = _sensitive_case_values(case)
@@ -219,6 +256,33 @@ def evaluate_trace(
             if response_events
             else ""
         )
+        user_transcript = str(transition.get("userTranscript") or "")
+
+        if from_phase == to_phase and not should_end:
+            previous_phase, previous_directive, previous_count = (
+                stalled_directive_by_call.get(call_id, ("", "", 0))
+            )
+            stalled_count = (
+                previous_count + 1
+                if previous_phase == from_phase and previous_directive == directive
+                else 1
+            )
+            stalled_directive_by_call[call_id] = (
+                from_phase,
+                directive,
+                stalled_count,
+            )
+            if stalled_count == 4:
+                findings.append(
+                    AdherenceFinding(
+                        "stalled_dialogue_loop",
+                        "fail",
+                        "The same phase and response directive repeated without progress.",
+                        turn_id=turn_id,
+                    )
+                )
+        else:
+            stalled_directive_by_call.pop(call_id, None)
 
         phase_coverage.update({from_phase, to_phase})
         if intent in {
@@ -230,6 +294,21 @@ def evaluate_trace(
             guard_coverage.add(intent)
         if transition.get("guardReason") == "refusal_limit_reached":
             guard_coverage.add("refusal_limit_reached")
+
+        if _looks_like_payment_refusal(user_transcript):
+            refusal_evidence_count = payment_refusals_by_call.get(call_id, 0) + 1
+            payment_refusals_by_call[call_id] = refusal_evidence_count
+            if refusal_evidence_count >= 2 and (
+                to_phase != CallPhase.ENDED.value or not should_end
+            ):
+                findings.append(
+                    AdherenceFinding(
+                        "repeated_persuasion_after_refusal",
+                        "fail",
+                        "Repeated explicit payment refusal did not end the call.",
+                        turn_id=turn_id,
+                    )
+                )
 
         previous_to_phase = previous_to_phase_by_call.get(call_id)
         if previous_to_phase is not None and from_phase != previous_to_phase:
@@ -284,7 +363,7 @@ def evaluate_trace(
                     turn_id=turn_id,
                 )
             )
-        if not response_events:
+        if not response_events and turn_id not in superseded_turn_ids:
             findings.append(
                 AdherenceFinding(
                     "missing_assistant_response",
@@ -317,7 +396,23 @@ def evaluate_trace(
                     )
                 )
         if response_text:
-            numeric_claims = set(re.findall(r"\b\d[\d.,]*\b", response_text))
+            normalized_response = _normalize(response_text)
+            signature = (from_phase, to_phase, directive, normalized_response)
+            if (
+                normalized_response
+                and previous_response_signature_by_call.get(call_id) == signature
+                and directive not in _CLOSING_DIRECTIVES
+            ):
+                findings.append(
+                    AdherenceFinding(
+                        "repetitive_response_loop",
+                        "fail",
+                        "Assistant repeated the same response without conversational progress.",
+                        turn_id=turn_id,
+                    )
+                )
+            previous_response_signature_by_call[call_id] = signature
+            numeric_claims = _numeric_claims(response_text)
             unsupported_numbers = sorted(numeric_claims - allowed_numeric_claims)
             if unsupported_numbers:
                 findings.append(
@@ -339,6 +434,70 @@ def evaluate_trace(
                         "persuasion_after_close_directive",
                         "fail",
                         "Closing response asks another question or continues persuasion.",
+                        turn_id=turn_id,
+                    )
+                )
+        if (
+            response_text
+            and directive == "confirm_case_review_request_without_claiming_execution"
+            and any(
+                marker in _normalize(response_text)
+                for marker in _SIMULATED_CASE_REVIEW_MARKERS
+            )
+        ):
+            findings.append(
+                AdherenceFinding(
+                    "simulated_case_review",
+                    "fail",
+                    "Case-review response claims an unequipped review is running or will run.",
+                    turn_id=turn_id,
+                )
+            )
+        if response_text and directive in {
+            "clarify_and_review_objection",
+            "summarize_and_review_objection",
+        }:
+            normalized_response = _normalize(response_text)
+            if any(
+                marker in normalized_response
+                for marker in (
+                    "he registrado su solicitud",
+                    "voy a registrar su solicitud",
+                    "su solicitud queda registrada",
+                    "your review request has been recorded",
+                    "i will record your review request",
+                )
+            ):
+                findings.append(
+                    AdherenceFinding(
+                        "premature_resolution_claim",
+                        "fail",
+                        "Assistant claimed a review request was recorded before selection.",
+                        turn_id=turn_id,
+                    )
+                )
+        if (
+            response_text
+            and directive == "confirm_case_review_request_without_claiming_execution"
+        ):
+            normalized_response = _normalize(response_text)
+            if any(
+                marker in normalized_response
+                for marker in (
+                    "opciones de pago",
+                    "pago inmediato",
+                    "fecha de pago",
+                    "plan de pago",
+                    "payment options",
+                    "pay immediately",
+                    "payment plan",
+                )
+            ):
+                findings.append(
+                    AdherenceFinding(
+                        "case_review_confirmation_mismatch",
+                        "fail",
+                        "Case-review confirmation introduced payment alternatives.",
                         turn_id=turn_id,
                     )
                 )
@@ -386,6 +545,7 @@ def evaluate_scenario_pack(
                     source=str(turn.get("source", "user")),
                     objection_type=turn.get("objectionType"),
                     resolution_type=turn.get("resolutionType"),
+                    verification_fields=turn.get("verificationFields"),
                 )
                 state = fsm.advance(state, event)
             except (KeyError, ValueError) as exc:
@@ -452,6 +612,7 @@ def _compare_expected_state(
         "expectedDirective": "response_directive",
         "expectedShouldEnd": "should_end",
         "expectedRefusalCount": "refusal_count",
+        "expectedVerifiedFields": "verified_fields",
     }
     for expected_key, state_key in expectations.items():
         if expected_key not in turn:
@@ -514,6 +675,27 @@ def _allowed_numeric_claims(case: CaseContext) -> set[str]:
         else:
             allowed.update({f"{major:.2f}", f"{major:.2f}".replace(".", ",")})
     return allowed
+
+
+def _numeric_claims(text: str) -> set[str]:
+    """Extract substantive numbers while ignoring ordered-list labels."""
+
+    without_list_markers = _ORDERED_LIST_MARKER.sub("", text)
+    return set(re.findall(r"\b\d[\d.,]*\b", without_list_markers))
+
+
+def _looks_like_payment_refusal(text: str) -> bool:
+    normalized = _normalize(text)
+    compact = normalized.replace(" ", "")
+    if compact in {
+        "novoyapagar",
+        "novoiapagar",
+        "nonvoyapagar",
+        "nonvoiapagar",
+        "novojapar",
+    }:
+        return True
+    return any(re.search(pattern, normalized) for pattern in _PAYMENT_REFUSAL_TRACE_PATTERNS)
 
 
 def _normalize(value: str) -> str:

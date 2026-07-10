@@ -6,8 +6,9 @@ import os
 import signal
 import sys
 import threading
+import time
 import webbrowser
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 
@@ -19,6 +20,8 @@ from .metrics import VoiceTelemetryRecorder, log_metrics_event, sync_metric_pane
 from .fsm_trace import FSMTraceRecorder
 from .transcript import ConversationTraceLogger
 from .web import TranscriptWebServer
+
+FINAL_DASHBOARD_SYNC_SECONDS = 0.75
 
 
 def request_console_process_exit() -> None:
@@ -42,6 +45,21 @@ def open_console_dashboard(url: str) -> bool:
         return bool(webbrowser.open(url, new=2, autoraise=True))
     except Exception:
         return False
+
+
+def close_console_session(
+    *,
+    web_server: TranscriptWebServer,
+    console_exit: Callable[[], None],
+    finalize_transcript: Callable[[], None],
+    wait: Callable[[float], None] | None = None,
+) -> None:
+    """Expose the final verdict for one browser poll before process exit."""
+
+    finalize_transcript()
+    (wait or time.sleep)(FINAL_DASHBOARD_SYNC_SECONDS)
+    web_server.close()
+    console_exit()
 
 
 def build_web_metadata(config: AgentConfig) -> tuple[list[dict[str, str]], list[str]]:
@@ -163,7 +181,6 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     barge_in_policy = BargeInPolicy.from_config(config)
     session = AgentSession(**barge_in_policy.session_options())
-    trace_logger = ConversationTraceLogger(store=web_server.store if web_server else None)
     voice_telemetry = VoiceTelemetryRecorder(
         jsonl_path=config.voice_metrics_telemetry_path,
         sqlite_path=config.voice_metrics_sqlite_path,
@@ -176,6 +193,14 @@ async def entrypoint(ctx: JobContext) -> None:
         )
         if config.fsm_trace_path or fsm_event_writer is not None
         else None
+    )
+    trace_logger = ConversationTraceLogger(
+        store=web_server.store if web_server else None,
+        on_agent_text_finalized=(
+            fsm_trace_recorder.record_streamed_terminal_response
+            if fsm_trace_recorder is not None
+            else None
+        ),
     )
 
     def request_immediate_agent_mute(_created_at: float) -> tuple[bool, str | None]:
@@ -249,8 +274,11 @@ async def entrypoint(ctx: JobContext) -> None:
         console_exit = request_console_process_exit
 
         def handle_console_session_close(_event) -> None:
-            web_server.close()
-            console_exit()
+            close_console_session(
+                web_server=web_server,
+                console_exit=console_exit,
+                finalize_transcript=trace_logger.on_agent_text_flush,
+            )
 
         session.on("close", handle_console_session_close)
         print(f"\nTranscript Web UI: {web_server.url}\n")

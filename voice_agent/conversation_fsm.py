@@ -75,6 +75,7 @@ class TurnEvent(TypedDict):
     source: str
     objection_type: NotRequired[str]
     resolution_type: NotRequired[str]
+    verification_fields: NotRequired[list[str]]
     evidence: NotRequired[dict[str, Any]]
 
 
@@ -92,6 +93,7 @@ class ConversationState(TypedDict):
     phase: str
     previous_phase: str
     identity_verified: bool
+    verified_fields: list[str]
     refusal_count: int
     objection_type: Optional[str]
     resolution_type: Optional[str]
@@ -137,6 +139,7 @@ def create_initial_state(
         "phase": CallPhase.OPENING.value,
         "previous_phase": CallPhase.OPENING.value,
         "identity_verified": False,
+        "verified_fields": [],
         "refusal_count": 0,
         "objection_type": None,
         "resolution_type": None,
@@ -155,6 +158,7 @@ def make_turn_event(
     source: str = "user",
     objection_type: str | None = None,
     resolution_type: str | None = None,
+    verification_fields: list[str] | None = None,
     evidence: dict[str, Any] | None = None,
 ) -> TurnEvent:
     """Build and validate the typed boundary consumed by the FSM."""
@@ -167,6 +171,8 @@ def make_turn_event(
         event["objection_type"] = objection_type
     if resolution_type:
         event["resolution_type"] = resolution_type
+    if verification_fields is not None:
+        event["verification_fields"] = list(dict.fromkeys(verification_fields))
     if evidence:
         event["evidence"] = deepcopy(evidence)
     return event
@@ -238,6 +244,12 @@ def response_context(state: ConversationState) -> dict[str, Any]:
         "locale": state["case"]["locale"],
         "calling_party": state["case"]["creditor_name"],
         "verification_fields": list(state["policy"]["verification_fields"]),
+        "verified_fields": list(state["verified_fields"]),
+        "remaining_verification_fields": [
+            field
+            for field in state["policy"]["verification_fields"]
+            if field not in state["verified_fields"]
+        ],
         "pre_verification_reason": state["policy"]["pre_verification_reason"],
         "should_end": state["should_end"],
     }
@@ -312,7 +324,21 @@ def _opening(state: ConversationState) -> dict[str, Any]:
 def _identity_verification(state: ConversationState) -> dict[str, Any]:
     intent = state["event"]["intent"]
     if intent == TurnIntent.IDENTITY_CONFIRMED.value:
+        required = state["policy"]["verification_fields"]
+        confirmed = [
+            field
+            for field in state["event"].get("verification_fields", [])
+            if field in required
+        ]
+        verified_fields = list(dict.fromkeys([*state["verified_fields"], *confirmed]))
+        if not all(field in verified_fields for field in required):
+            return {
+                "verified_fields": verified_fields,
+                "identity_verified": False,
+                "response_directive": "verify_remaining_identity_fields",
+            }
         return {
+            "verified_fields": verified_fields,
             "identity_verified": True,
             "phase": CallPhase.CASE_DISCLOSURE.value,
             "response_directive": "disclose_case_and_ask_recognition",
@@ -361,6 +387,18 @@ def _enter_objection(state: ConversationState) -> dict[str, Any]:
 
 def _objection_handling(state: ConversationState) -> dict[str, Any]:
     intent = state["event"]["intent"]
+    if (
+        intent == TurnIntent.OUTCOME_CONFIRMED.value
+        and "case_review" in state["case"]["available_resolution_types"]
+    ):
+        return {
+            "phase": CallPhase.ENDED.value,
+            "resolution_type": "case_review",
+            "should_end": True,
+            "response_directive": "confirm_outcome_and_close",
+        }
+    if intent == TurnIntent.RESOLUTION_SELECTED.value:
+        return _select_resolution(state)
     if intent == TurnIntent.OBJECTION_PROVIDED.value:
         return {
             "objection_type": state["event"].get("objection_type"),
@@ -389,20 +427,31 @@ def _resolution(state: ConversationState) -> dict[str, Any]:
             "response_directive": "explain_limit_and_escalate",
         }
     if intent == TurnIntent.RESOLUTION_SELECTED.value:
-        selected = state["event"].get("resolution_type")
-        allowed = state["case"]["available_resolution_types"]
-        if not selected or selected not in allowed:
-            return {
-                "resolution_type": None,
-                "guard_reason": "unsupported_resolution_type",
-                "response_directive": "offer_case_approved_resolutions",
-            }
-        return {
-            "phase": CallPhase.CONFIRMATION.value,
-            "resolution_type": selected,
-            "response_directive": "confirm_selected_resolution",
-        }
+        return _select_resolution(state)
     return {"response_directive": "offer_case_approved_resolutions"}
+
+
+def _select_resolution(state: ConversationState) -> dict[str, Any]:
+    selected = state["event"].get("resolution_type")
+    allowed = state["case"]["available_resolution_types"]
+    if not selected or selected not in allowed:
+        return {
+            "resolution_type": None,
+            "guard_reason": "unsupported_resolution_type",
+            "response_directive": "offer_case_approved_resolutions",
+        }
+    directive = "confirm_selected_resolution"
+    if selected == "immediate_payment":
+        directive = (
+            "confirm_immediate_payment_commitment_without_requesting_payment_credentials"
+        )
+    elif selected == "case_review":
+        directive = "confirm_case_review_request_without_claiming_execution"
+    return {
+        "phase": CallPhase.CONFIRMATION.value,
+        "resolution_type": selected,
+        "response_directive": directive,
+    }
 
 
 def _confirmation(state: ConversationState) -> dict[str, Any]:
@@ -419,7 +468,15 @@ def _confirmation(state: ConversationState) -> dict[str, Any]:
             "resolution_type": None,
             "response_directive": "correct_and_offer_case_approved_resolutions",
         }
-    return {"response_directive": "confirm_selected_resolution"}
+    return {
+        "response_directive": (
+            "confirm_immediate_payment_commitment_without_requesting_payment_credentials"
+            if state["resolution_type"] == "immediate_payment"
+            else "confirm_case_review_request_without_claiming_execution"
+            if state["resolution_type"] == "case_review"
+            else "confirm_selected_resolution"
+        )
+    }
 
 
 def _escalation(state: ConversationState) -> dict[str, Any]:
@@ -510,6 +567,11 @@ def _validate_event(event: TurnEvent) -> None:
     _normalize_intent(event.get("intent", ""))
     if event.get("source") not in {"user", "system"}:
         raise ValueError("turn event source must be 'user' or 'system'")
+    verification_fields = event.get("verification_fields", [])
+    if not isinstance(verification_fields, list) or not all(
+        isinstance(field, str) and field for field in verification_fields
+    ):
+        raise ValueError("verification_fields must be a list of non-empty strings")
 
 
 def _validate_state(state: ConversationState) -> None:

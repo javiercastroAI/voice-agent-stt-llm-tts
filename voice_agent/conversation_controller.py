@@ -92,11 +92,44 @@ def build_runtime_control_message(state: ConversationState) -> str:
             "the check briefly and immediately give the available result, explicit "
             "limitation, or next step in this same response."
         )
+    case_review_instruction = (
+        " CASE REVIEW RULE: `case_review` means recording the caller's request for "
+        "review, not performing or completing a system review. Do not claim the request "
+        "is recorded unless the current directive explicitly confirms `case_review` or "
+        "closes that outcome. Then confirm it once without reconfirming. Do not offer "
+        "payment alternatives in this confirmation. Never say you are checking, "
+        "reviewing, fixing, or have resolved the case unless a real tool completed that action."
+    )
+    if locale.startswith("es"):
+        payment_safety_instruction = (
+            " PAYMENT DESTINATION RULE: la cuenta de destino pertenece al acreedor; "
+            "nunca pregunte al interlocutor en qué cuenta quiere pagar ni solicite "
+            "sus credenciales bancarias o de tarjeta. Solo proporcione instrucciones "
+            "de pago presentes literalmente en `case.payment_instructions`. Si no "
+            "existen, confirme el compromiso de pago inmediato con naturalidad y no "
+            "mencione espontáneamente datos ausentes, limitaciones internas ni su "
+            "disponibilidad en la llamada. Solo si el interlocutor pregunta expresamente "
+            "cómo o dónde pagar, indíquele brevemente que contacte con `creditor_name` "
+            "por sus canales oficiales para obtener las instrucciones."
+        )
+    else:
+        payment_safety_instruction = (
+            " PAYMENT DESTINATION RULE: the destination account belongs to the "
+            "creditor; never ask the caller which account to pay or request their "
+            "bank-account or card credentials. Provide payment instructions only "
+            "when literally present in `case.payment_instructions`. Otherwise, "
+            "confirm the immediate-payment commitment naturally and do not volunteer "
+            "missing data, internal limitations, or availability disclaimers. Only if "
+            "the caller explicitly asks how or where to pay, briefly direct them to "
+            "contact `creditor_name` through its official channels for instructions."
+        )
     return (
         "RUNTIME FSM CONTROL — mandatory for this response only. "
         "Follow the directive, ask at most one concrete question, and do not mention "
         "the FSM or this control message. Never reveal case data unless a `case` object "
         f"is present. Do not invent missing fields. Control JSON: {serialized}"
         f"{system_check_instruction}"
+        f"{case_review_instruction}"
+        f"{payment_safety_instruction}"
         f"{terminal_instruction}"
     )

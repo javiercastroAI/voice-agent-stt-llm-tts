@@ -166,6 +166,40 @@ class AssistantAgentFSMHookTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(text_content="   "),
             )
 
+    async def test_terminal_turn_speaks_deterministic_farewell_and_stops_llm(self) -> None:
+        state = verification_state()
+        state["should_end"] = True
+        state["phase"] = "ended"
+        state["response_directive"] = "close_after_refusal_limit"
+        controller = FakeController(state)
+        agent = self.make_agent(controller)
+        trace = Mock()
+        agent._fsm_trace_recorder = trace
+        speech_handle = SimpleNamespace(add_done_callback=Mock())
+        session = SimpleNamespace(say=Mock(return_value=speech_handle))
+
+        with patch.object(
+            AssistantAgent,
+            "session",
+            new_callable=PropertyMock,
+            return_value=session,
+        ):
+            with self.assertRaises(StopResponse):
+                await agent.on_user_turn_completed(
+                    FakeTurnContext(),
+                    SimpleNamespace(text_content="No voy a pagar."),
+                )
+
+        session.say.assert_called_once_with(
+            "I understand your decision. Thank you for your time; have a good day.",
+            allow_interruptions=False,
+            add_to_chat_ctx=True,
+        )
+        speech_handle.add_done_callback.assert_called_once_with(
+            trace.record_terminal_speech_handle
+        )
+        self.assertTrue(agent._terminal_farewell_started)
+
     async def test_disabled_controller_keeps_existing_agent_behavior(self) -> None:
         agent = self.make_agent(None)
         turn_ctx = FakeTurnContext()

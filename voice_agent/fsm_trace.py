@@ -34,6 +34,7 @@ class FSMTraceRecorder:
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._pending_turn_ids: deque[str] = deque()
         self._seen_conversation_item_ids: set[str] = set()
+        self._streamed_terminal_response: str | None = None
         self.events: list[dict[str, Any]] = []
 
     def record_opening(self, state: ConversationState) -> str:
@@ -68,9 +69,52 @@ class FSMTraceRecorder:
         text = str(getattr(item, "text_content", "") or "").strip()
         if not text:
             return None
+        if (
+            self._streamed_terminal_response is not None
+            and self._normalize(text) == self._streamed_terminal_response
+        ):
+            if item_id:
+                self._seen_conversation_item_ids.add(item_id)
+            self._streamed_terminal_response = None
+            return None
         if item_id:
             self._seen_conversation_item_ids.add(item_id)
         return self.record_assistant_response(text, conversation_item_id=item_id or None)
+
+    def record_streamed_terminal_response(self, text: str) -> str | None:
+        """Record spoken terminal text when the SDK omits its conversation item."""
+
+        cleaned = text.strip()
+        if not cleaned or not self._pending_turn_ids:
+            return None
+        pending_turn_id = self._pending_turn_ids[0]
+        transition = next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.get("type") == "fsm_transition"
+                and event.get("turnId") == pending_turn_id
+            ),
+            None,
+        )
+        if transition is None or not transition.get("shouldEnd"):
+            return None
+        turn_id = self.record_assistant_response(cleaned)
+        self._streamed_terminal_response = self._normalize(cleaned)
+        return turn_id
+
+    def record_terminal_speech_handle(self, speech_handle: object) -> str | None:
+        """Record the final assistant item committed by completed end-call speech."""
+
+        for item in reversed(list(getattr(speech_handle, "chat_items", ()) or ())):
+            if getattr(item, "type", None) != "message":
+                continue
+            if getattr(item, "role", None) != "assistant":
+                continue
+            text = str(getattr(item, "text_content", "") or "").strip()
+            if text:
+                return self.record_streamed_terminal_response(text)
+        return None
 
     def record_assistant_response(
         self,
@@ -103,6 +147,7 @@ class FSMTraceRecorder:
         event: TurnEvent,
         state: ConversationState,
     ) -> str:
+        self._supersede_pending_turns()
         transition = state["transition_history"][-1]
         turn_id = self._id_factory()
         self._pending_turn_ids.append(turn_id)
@@ -120,6 +165,7 @@ class FSMTraceRecorder:
                 "directive": transition["directive"],
                 "guardReason": transition["guard_reason"],
                 "identityVerified": state["identity_verified"],
+                "verifiedFields": list(state["verified_fields"]),
                 "refusalCount": state["refusal_count"],
                 "resolutionType": state["resolution_type"],
                 "shouldEnd": state["should_end"],
@@ -127,6 +173,20 @@ class FSMTraceRecorder:
             }
         )
         return turn_id
+
+    def _supersede_pending_turns(self) -> None:
+        while self._pending_turn_ids:
+            turn_id = self._pending_turn_ids.popleft()
+            self._write(
+                {
+                    "version": 1,
+                    "type": "turn_superseded",
+                    "callId": self._call_id,
+                    "turnId": turn_id,
+                    "recordedAt": self._timestamp(),
+                    "supersedeReason": "new_user_turn_before_assistant_response",
+                }
+            )
 
     def _write(self, event: dict[str, Any]) -> None:
         self.events.append(event)
@@ -140,3 +200,7 @@ class FSMTraceRecorder:
 
     def _timestamp(self) -> str:
         return self._now().astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return " ".join(text.split())
