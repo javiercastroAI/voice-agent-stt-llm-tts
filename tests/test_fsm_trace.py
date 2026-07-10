@@ -85,6 +85,7 @@ class FSMTraceRecorderTests(unittest.TestCase):
 
         transition = recorder.events[0]
         self.assertEqual(transition["fromPhase"], "identity_verification")
+        self.assertEqual(transition["transitionId"], "identity_complete")
         self.assertEqual(transition["toPhase"], "case_disclosure")
         self.assertTrue(transition["identityVerified"])
         self.assertEqual(

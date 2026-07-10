@@ -9,10 +9,14 @@ from voice_agent.conversation_fsm import (
     CaseContext,
     ConversationFSM,
     DEFAULT_POLICY,
+    PHASE_TRANSITIONS,
+    TRANSITION_REGISTRY,
     TurnIntent,
     create_initial_state,
     make_turn_event,
+    render_business_graph,
     response_context,
+    validate_transition_registry,
 )
 
 
@@ -308,6 +312,7 @@ class ConversationFSMTests(unittest.TestCase):
         self.assertEqual(
             self.state["transition_history"][-1],
             {
+                "transition_id": "identity_complete",
                 "from_phase": CallPhase.IDENTITY_VERIFICATION.value,
                 "to_phase": CallPhase.CASE_DISCLOSURE.value,
                 "intent": TurnIntent.IDENTITY_CONFIRMED.value,
@@ -323,6 +328,35 @@ class ConversationFSMTests(unittest.TestCase):
         )
 
         self.assertEqual(spec["phases"], [phase.value for phase in CallPhase])
+        self.assertEqual(
+            spec["transitionSource"],
+            "voice_agent.conversation_fsm.TRANSITION_REGISTRY",
+        )
+
+    def test_transition_registry_has_unique_ids_and_phase_fallbacks(self) -> None:
+        validate_transition_registry()
+        self.assertEqual(
+            len({transition.id for transition in TRANSITION_REGISTRY}),
+            len(TRANSITION_REGISTRY),
+        )
+        for phase in CallPhase:
+            fallbacks = [
+                transition
+                for transition in PHASE_TRANSITIONS
+                if transition.source is phase and not transition.intents
+            ]
+            self.assertEqual(len(fallbacks), 1, phase.value)
+
+    def test_generated_business_graph_matches_registry(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        graph_path = root / "docs/generated/fsm-business-graph.md"
+        self.assertEqual(graph_path.read_text(encoding="utf-8"), render_business_graph())
+        graph = render_business_graph()
+        for transition in TRANSITION_REGISTRY:
+            if transition.diagram:
+                source = "ANY" if transition.source is None else transition.source.name
+                self.assertIn(f'{source} -->|"{transition.id}:', graph)
+                self.assertIn(f'| {transition.target.name}', graph)
 
     def test_runtime_contains_no_demo_case_values(self) -> None:
         source = Path(__file__).resolve().parent.parent / "voice_agent/conversation_fsm.py"

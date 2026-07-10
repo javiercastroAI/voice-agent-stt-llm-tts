@@ -16,6 +16,8 @@ loaded from `examples/collections/al-corriente.case.json`.
 
 - OpenAI LLM, speech-to-text, and text-to-speech integration.
 - Generic LangGraph conversation FSM outside the speaking LLM.
+- Typed declarative transition registry executed by the FSM runtime.
+- Automatically generated stakeholder business graph from the executable registry.
 - Typed OpenAI intent interpretation with deterministic transition guards.
 - LiveKit Agents runtime for console, development room, and worker execution.
 - Fast controlled STT path with Spanish language pinning.
@@ -192,6 +194,18 @@ For tuning guidance, see
 [docs/barge-in-latency-tuning-guide.md](docs/barge-in-latency-tuning-guide.md).
 
 ## FSM Adherence Evaluation
+
+The canonical transition table is
+`voice_agent.conversation_fsm.TRANSITION_REGISTRY`. Generate or verify the
+stakeholder-facing graph with:
+
+```bash
+python scripts/generate-fsm-graph.py
+python scripts/generate-fsm-graph.py --check
+```
+
+The committed output is
+[`docs/generated/fsm-business-graph.md`](docs/generated/fsm-business-graph.md).
 
 Replay every deterministic FSM phase and global guard without API or audio
 access:

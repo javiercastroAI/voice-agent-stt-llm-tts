@@ -53,6 +53,10 @@ if isinstance(conversation_fsm, dict):
         fail("specs/system/conversation-fsm.json: version must be 1")
     if conversation_fsm.get("orchestrator") != "langgraph-stategraph":
         fail("specs/system/conversation-fsm.json: orchestrator must be langgraph-stategraph")
+    if conversation_fsm.get("transitionModel") != "typed-declarative-registry":
+        fail("specs/system/conversation-fsm.json: transitionModel must be typed-declarative-registry")
+    if conversation_fsm.get("generatedBusinessGraph") != "docs/generated/fsm-business-graph.md":
+        fail("specs/system/conversation-fsm.json: generatedBusinessGraph path is invalid")
     phases = conversation_fsm.get("phases")
     if not isinstance(phases, list) or "identity_verification" not in phases or "ended" not in phases:
         fail("specs/system/conversation-fsm.json: required phases are missing")

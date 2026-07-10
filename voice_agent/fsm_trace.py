@@ -160,6 +160,7 @@ class FSMTraceRecorder:
                 "recordedAt": self._timestamp(),
                 "userTranscript": user_transcript,
                 "interpretedIntent": event["intent"],
+                "transitionId": transition["transition_id"],
                 "fromPhase": transition["from_phase"],
                 "toPhase": transition["to_phase"],
                 "directive": transition["directive"],

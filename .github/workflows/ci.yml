@@ -29,6 +29,9 @@ jobs:
       - name: Validate scaffold and specs
         run: python3 scripts/generate-contract-artifacts.py --check && python3 scripts/validate-specs.py && ./scripts/check-scaffold.sh
 
+      - name: Validate generated FSM business graph
+        run: python3 scripts/generate-fsm-graph.py --check
+
       - name: Build
         run: python3 -m compileall voice_agent backend shared tests
 

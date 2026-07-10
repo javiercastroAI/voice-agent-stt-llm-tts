@@ -2,6 +2,9 @@
   "version": 1,
   "id": "generic-outbound-collections-fsm",
   "orchestrator": "langgraph-stategraph",
+  "transitionModel": "typed-declarative-registry",
+  "transitionSource": "voice_agent.conversation_fsm.TRANSITION_REGISTRY",
+  "generatedBusinessGraph": "docs/generated/fsm-business-graph.md",
   "phases": [
     "opening",
     "identity_verification",
