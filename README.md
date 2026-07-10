@@ -9,12 +9,14 @@ purposes.
 
 The checked-in demo profile is a Spanish outbound collections scenario:
 `MacroHard` calls `Al Corriente S.L.` about one pending `CloudX` monthly charge
-for `1.527 euros`. The scenario is deliberately fictional and can be replaced
-through `AGENT_INSTRUCTIONS` or `AGENT_INSTRUCTIONS_FILE`.
+for `1.527 euros`. The scenario is deliberately fictional and its case data is
+loaded from `examples/collections/al-corriente.case.json`.
 
 ## Features
 
 - OpenAI LLM, speech-to-text, and text-to-speech integration.
+- Generic LangGraph conversation FSM outside the speaking LLM.
+- Typed OpenAI intent interpretation with deterministic transition guards.
 - LiveKit Agents runtime for console, development room, and worker execution.
 - Fast controlled STT path with Spanish language pinning.
 - Configurable barge-in detection, immediate mute, false-interruption handling,
@@ -62,9 +64,14 @@ Local console mode with microphone and speaker:
 python -m voice_agent.app console
 ```
 
-Console mode prints a local `Transcript Web UI` URL. Open it in a browser to see
-live transcript state, user speaking state, agent speaking state, barge-in
-counters, and latency metrics.
+With the FSM enabled, the outbound agent automatically speaks its opening when
+the session becomes active. Set `FSM_AUTO_OPENING_ENABLED=false` for user-first
+testing.
+
+Console mode opens the local `Transcript Web UI` in the user's default browser
+before the voice session starts. It shows live transcript state, FSM state,
+user and agent speaking state, barge-in counters, and latency metrics. The URL
+is also printed as a fallback if the operating system cannot open a browser.
 
 List local audio devices without requiring API keys:
 
@@ -89,6 +96,10 @@ python -m voice_agent.app start
 Core options:
 
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`.
+- `OPENAI_INTENT_MODEL` defaults to `OPENAI_MODEL` and performs typed intent
+  classification before the speaking LLM runs.
+- `FSM_INTENT_TIMEOUT_SECONDS` defaults to `2.0`; failures retain the current
+  safe phase as an `unknown` event.
 - `OPENAI_MAX_COMPLETION_TOKENS` defaults to `60`; set to `none` to disable the
   short-turn cap.
 - `OPENAI_LLM_TEMPERATURE` defaults to `0.2`.
@@ -101,12 +112,25 @@ Core options:
 - `OPENAI_TTS_SPEED` defaults to `1.05`.
 - `AGENT_INSTRUCTIONS` controls the assistant behavior and scenario directly.
 - `AGENT_INSTRUCTIONS_FILE` loads assistant behavior from a UTF-8 prompt file.
+- `FSM_ENABLED` defaults to `true`.
+- `FSM_AUTO_OPENING_ENABLED` defaults to `true`; disable it to retain a
+  user-first conversation while keeping FSM processing enabled.
+- `CASE_CONTEXT_FILE` defaults to
+  `examples/collections/al-corriente.case.json`; point it to another validated
+  case JSON file to reuse the same graph for a different case.
+- `FSM_TRACE_PATH` enables correlated JSONL transition and assistant-response
+  evidence. It is disabled by default because traces contain transcripts; the
+  demo example writes `logs/fsm-adherence.jsonl`.
 
 The default prompt file is:
 
 ```text
 prompts/collections-es.md
 ```
+
+The prompt contains generic conversational behavior. Customer, account,
+product, amount, and available-resolution data come from `CASE_CONTEXT_FILE`
+and are withheld from the speaking model until the FSM verifies identity.
 
 For the complete demo configuration, see:
 
@@ -166,6 +190,36 @@ latency, TTS latency, and transcript stability.
 
 For tuning guidance, see
 [docs/barge-in-latency-tuning-guide.md](docs/barge-in-latency-tuning-guide.md).
+
+## FSM Adherence Evaluation
+
+Replay every deterministic FSM phase and global guard without API or audio
+access:
+
+```bash
+python scripts/evaluate-fsm-adherence.py --scenario-only
+```
+
+Evaluate a recorded call trace:
+
+```bash
+python scripts/evaluate-fsm-adherence.py \
+  --trace logs/fsm-adherence.jsonl \
+  --json
+```
+
+Add `--llm-judge` for the optional clarity, tone, and concision assessment. Its
+result is reported separately and cannot override deterministic compliance.
+
+Combine a real microphone run with the production STT, barge-in, and latency
+gates:
+
+```bash
+python scripts/evaluate-fsm-audio-run.py \
+  --scenario-id barge-in-termination \
+  --manual-verdict pass \
+  --json
+```
 
 ## Tests
 

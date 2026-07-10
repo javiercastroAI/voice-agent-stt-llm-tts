@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "generic-outbound-collections-fsm",
+  "orchestrator": "langgraph-stategraph",
+  "phases": [
+    "opening",
+    "identity_verification",
+    "case_disclosure",
+    "recognition",
+    "objection_handling",
+    "resolution",
+    "confirmation",
+    "escalation",
+    "ended"
+  ],
+  "sensitivePhases": [
+    "case_disclosure",
+    "recognition",
+    "objection_handling",
+    "resolution",
+    "confirmation"
+  ],
+  "globalTransitions": {
+    "explicit_termination": "ended",
+    "wrong_party": "ended",
+    "requests_human": "escalation",
+    "vulnerability_detected": "escalation"
+  },
+  "invariants": [
+    "Case details are runtime data and never graph topology.",
+    "Sensitive phases require verified identity.",
+    "The LLM cannot directly mutate FSM state.",
+    "Explicit termination ends the call from every phase.",
+    "Only case-approved resolution types can be selected.",
+    "Internal case metadata is never exposed to the speaking model.",
+    "LiveKit remains responsible for the real-time voice pipeline."
+  ]
+}

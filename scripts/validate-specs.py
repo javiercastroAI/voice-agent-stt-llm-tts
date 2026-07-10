@@ -47,6 +47,56 @@ if isinstance(rules, dict):
     if not isinstance(rules.get("invariants"), list) or not rules["invariants"]:
         fail("specs/system/rules.json: invariants must be a non-empty array")
 
+conversation_fsm = read_json("specs/system/conversation-fsm.json")
+if isinstance(conversation_fsm, dict):
+    if conversation_fsm.get("version") != 1:
+        fail("specs/system/conversation-fsm.json: version must be 1")
+    if conversation_fsm.get("orchestrator") != "langgraph-stategraph":
+        fail("specs/system/conversation-fsm.json: orchestrator must be langgraph-stategraph")
+    phases = conversation_fsm.get("phases")
+    if not isinstance(phases, list) or "identity_verification" not in phases or "ended" not in phases:
+        fail("specs/system/conversation-fsm.json: required phases are missing")
+
+case_context_schema = read_json("specs/system/case-context.schema.json")
+if isinstance(case_context_schema, dict):
+    if case_context_schema.get("type") != "object":
+        fail("specs/system/case-context.schema.json: top-level type must be object")
+    if case_context_schema.get("additionalProperties") is not False:
+        fail("specs/system/case-context.schema.json: additional properties must be forbidden")
+    required_case_fields = case_context_schema.get("required", [])
+    for field in ["case_id", "creditor_name", "customer_name", "disclosure_summary"]:
+        if field not in required_case_fields:
+            fail(f"specs/system/case-context.schema.json: required must include {field}")
+
+fsm_trace_schema = read_json("specs/system/fsm-trace.schema.json")
+if isinstance(fsm_trace_schema, dict):
+    if fsm_trace_schema.get("type") != "object":
+        fail("specs/system/fsm-trace.schema.json: top-level type must be object")
+    if fsm_trace_schema.get("additionalProperties") is not False:
+        fail("specs/system/fsm-trace.schema.json: additional properties must be forbidden")
+    trace_types = fsm_trace_schema.get("properties", {}).get("type", {}).get("enum", [])
+    for event_type in ["fsm_transition", "assistant_response"]:
+        if event_type not in trace_types:
+            fail(f"specs/system/fsm-trace.schema.json: type enum must include {event_type}")
+
+fsm_scenarios = read_json("specs/scenarios/fsm-adherence.json")
+if isinstance(fsm_scenarios, dict):
+    if fsm_scenarios.get("version") != 1:
+        fail("specs/scenarios/fsm-adherence.json: version must be 1")
+    if not fsm_scenarios.get("scenarios"):
+        fail("specs/scenarios/fsm-adherence.json: scenarios must not be empty")
+    if not fsm_scenarios.get("requiredPhaseCoverage"):
+        fail("specs/scenarios/fsm-adherence.json: phase coverage must be declared")
+    if not fsm_scenarios.get("requiredGlobalGuardCoverage"):
+        fail("specs/scenarios/fsm-adherence.json: guard coverage must be declared")
+
+audio_scenarios = read_json("specs/scenarios/fsm-audio-adherence.json")
+if isinstance(audio_scenarios, dict):
+    if audio_scenarios.get("version") != 1:
+        fail("specs/scenarios/fsm-audio-adherence.json: version must be 1")
+    if not audio_scenarios.get("scenarios"):
+        fail("specs/scenarios/fsm-audio-adherence.json: scenarios must not be empty")
+
 governance = read_json("specs/governance/controls.json")
 if isinstance(governance, dict):
     if governance.get("version") != 2:
@@ -105,6 +155,8 @@ if "python3 scripts/generate-contract-artifacts.py --check && python3 scripts/va
     fail(".github/workflows/ci.yml: missing scaffold/spec check command")
 if True and "Install dependencies" not in ci:
     fail(".github/workflows/ci.yml: dependency installation must be explicit")
+if "python3 scripts/evaluate-fsm-adherence.py --scenario-only" not in ci:
+    fail(".github/workflows/ci.yml: deterministic FSM adherence replay must be enabled")
 
 security_workflow = (root / ".github" / "workflows" / "security.yml").read_text(encoding="utf-8")
 if "actions/dependency-review-action@v4" not in security_workflow:

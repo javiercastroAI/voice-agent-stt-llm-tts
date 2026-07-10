@@ -13,6 +13,8 @@ class AgentConfigTests(unittest.TestCase):
             {
                 "OPENAI_API_KEY": " openai-key ",
                 "OPENAI_MODEL": " gpt-4o-mini ",
+                "OPENAI_INTENT_MODEL": " gpt-4o-mini ",
+                "FSM_INTENT_TIMEOUT_SECONDS": " 1.5 ",
                 "OPENAI_MAX_COMPLETION_TOKENS": " 40 ",
                 "OPENAI_LLM_TEMPERATURE": " 0.1 ",
                 "VOICE_PIPELINE_MODE": " controlled_fast ",
@@ -29,11 +31,17 @@ class AgentConfigTests(unittest.TestCase):
                 "OPENAI_TTS_SPEED": " 1.1 ",
                 "OPENAI_TTS_INSTRUCTIONS": " speak in Spain Spanish ",
                 "AGENT_INSTRUCTIONS": " custom instructions ",
+                "FSM_ENABLED": " false ",
+                "FSM_AUTO_OPENING_ENABLED": " false ",
+                "CASE_CONTEXT_FILE": " examples/collections/custom.json ",
+                "FSM_TRACE_PATH": " logs/custom-fsm.jsonl ",
             }
         )
 
         self.assertEqual(config.openai_api_key, "openai-key")
         self.assertEqual(config.openai_model, "gpt-4o-mini")
+        self.assertEqual(config.openai_intent_model, "gpt-4o-mini")
+        self.assertEqual(config.fsm_intent_timeout_seconds, 1.5)
         self.assertEqual(config.openai_max_completion_tokens, 40)
         self.assertEqual(config.openai_llm_temperature, 0.1)
         self.assertEqual(config.voice_pipeline_mode, "controlled_fast")
@@ -50,6 +58,13 @@ class AgentConfigTests(unittest.TestCase):
         self.assertEqual(config.openai_tts_speed, 1.1)
         self.assertEqual(config.openai_tts_instructions, "speak in Spain Spanish")
         self.assertEqual(config.agent_instructions, "custom instructions")
+        self.assertFalse(config.fsm_enabled)
+        self.assertFalse(config.fsm_auto_opening_enabled)
+        self.assertEqual(
+            config.case_context_file,
+            "examples/collections/custom.json",
+        )
+        self.assertEqual(config.fsm_trace_path, "logs/custom-fsm.jsonl")
 
     def test_from_env_uses_instruction_default(self) -> None:
         config = AgentConfig.from_env({})
@@ -59,25 +74,30 @@ class AgentConfigTests(unittest.TestCase):
         self.assertIn("recobro amistoso", config.agent_instructions)
         self.assertIn("Cada turno debe avanzar", config.agent_instructions)
         self.assertIn("No uses preguntas vacías", config.agent_instructions)
-        self.assertIn("incidencia administrativa con un pago", config.agent_instructions)
-        self.assertIn("sin dar producto, importe", config.agent_instructions)
-        self.assertIn("menor dato posible", config.agent_instructions)
+        self.assertIn("RUNTIME FSM CONTROL", config.agent_instructions)
+        self.assertIn("Si el bloque no contiene un objeto `case`", config.agent_instructions)
+        self.assertIn("Antes de verificar identidad", config.agent_instructions)
+        self.assertIn("verification_fields", config.agent_instructions)
         self.assertIn("No pidas DNI", config.agent_instructions)
-        self.assertIn("MacroHard", config.agent_instructions)
-        self.assertIn("Al Corriente S.L.", config.agent_instructions)
-        self.assertIn("CloudX", config.agent_instructions)
-        self.assertIn("1.527 euros", config.agent_instructions)
-        self.assertIn("Veo una mensualidad de CloudX", config.agent_instructions)
-        self.assertIn("resolver ahora", config.agent_instructions)
-        self.assertIn("clasifica la objeción", config.agent_instructions)
-        self.assertIn("Lo reviso un momento... ya lo tengo", config.agent_instructions)
-        self.assertIn("nunca te quedes en silencio", config.agent_instructions)
+        self.assertNotIn("MacroHard", config.agent_instructions)
+        self.assertNotIn("Al Corriente S.L.", config.agent_instructions)
+        self.assertNotIn("CloudX", config.agent_instructions)
+        self.assertNotIn("1.527 euros", config.agent_instructions)
+        self.assertIn("available_resolution_types", config.agent_instructions)
+        self.assertIn("No simules acceso a sistemas", config.agent_instructions)
         self.assertIn("No propongas agendar otra llamada", config.agent_instructions)
-        self.assertIn("No dejes escapar al cliente", config.agent_instructions)
-        self.assertIn("Si el cliente rechaza dos veces", config.agent_instructions)
         self.assertIn("no dejes frases a medias", config.agent_instructions)
         self.assertIn("No inventes vencimientos", config.agent_instructions)
         self.assertIn("máximo 8 palabras", config.agent_instructions)
+        self.assertEqual(config.openai_intent_model, "gpt-4o-mini")
+        self.assertEqual(config.fsm_intent_timeout_seconds, 2.0)
+        self.assertTrue(config.fsm_enabled)
+        self.assertTrue(config.fsm_auto_opening_enabled)
+        self.assertEqual(
+            config.case_context_file,
+            "examples/collections/al-corriente.case.json",
+        )
+        self.assertIsNone(config.fsm_trace_path)
         self.assertEqual(config.voice_pipeline_mode, "controlled_fast")
         self.assertEqual(config.openai_stt_model, "gpt-4o-transcribe-diarize")
         self.assertEqual(config.openai_fast_stt_model, "gpt-4o-mini-transcribe")
@@ -227,3 +247,16 @@ class AgentConfigTests(unittest.TestCase):
         )
 
         self.assertIsNone(config.openai_api_key)
+
+    def test_validate_rejects_missing_case_context_file(self) -> None:
+        config = AgentConfig.from_env(
+            {
+                "OPENAI_API_KEY": "openai-key",
+                "CASE_CONTEXT_FILE": "examples/collections/does-not-exist.json",
+            }
+        )
+
+        with self.assertRaises(ConfigError) as ctx:
+            config.validate_for_command("console")
+
+        self.assertIn("Case context file not found", str(ctx.exception))

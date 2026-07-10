@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fsm-trace.schema.json",
+  "title": "FSM adherence trace event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "type", "callId", "turnId", "recordedAt"],
+  "properties": {
+    "version": {"const": 1},
+    "type": {"enum": ["fsm_transition", "assistant_response"]},
+    "callId": {"type": "string", "minLength": 1},
+    "turnId": {"type": "string", "minLength": 1},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "userTranscript": {"type": "string"},
+    "interpretedIntent": {"type": "string"},
+    "fromPhase": {"type": "string"},
+    "toPhase": {"type": "string"},
+    "directive": {"type": "string"},
+    "guardReason": {"type": ["string", "null"]},
+    "identityVerified": {"type": "boolean"},
+    "refusalCount": {"type": "integer", "minimum": 0},
+    "resolutionType": {"type": ["string", "null"]},
+    "shouldEnd": {"type": "boolean"},
+    "interpreter": {"type": ["string", "null"]},
+    "assistantText": {"type": "string"},
+    "conversationItemId": {"type": ["string", "null"]}
+  }
+}

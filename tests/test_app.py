@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import signal
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -11,6 +12,8 @@ from voice_agent.app import (
     build_worker_options,
     entrypoint,
     main,
+    open_console_dashboard,
+    request_console_process_exit,
     resolve_cli_command,
     should_skip_validation,
     validate_startup,
@@ -60,6 +63,27 @@ class AppTests(unittest.TestCase):
         self.assertEqual(options.ws_url, "wss://example.livekit.cloud")
         self.assertEqual(options.api_key, "livekit-key")
         self.assertEqual(options.api_secret, "livekit-secret")
+
+    def test_dashboard_browser_failure_is_non_fatal(self) -> None:
+        with patch("voice_agent.app.webbrowser.open", side_effect=RuntimeError("no browser")):
+            self.assertFalse(open_console_dashboard("http://127.0.0.1:8765/"))
+
+    def test_console_process_exit_has_bounded_fallback(self) -> None:
+        timer = Mock()
+        with (
+            patch("voice_agent.app.threading.Timer", return_value=timer) as timer_factory,
+            patch(
+                "voice_agent.app.signal.raise_signal",
+                side_effect=RuntimeError("signal dispatched"),
+            ) as raise_signal,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "signal dispatched"):
+                request_console_process_exit()
+
+        timer_factory.assert_called_once_with(2.0, os._exit, args=(0,))
+        self.assertTrue(timer.daemon)
+        timer.start.assert_called_once_with()
+        raise_signal.assert_called_once_with(signal.SIGINT)
 
     def test_build_worker_options_uses_console_defaults_without_livekit_credentials(self) -> None:
         config = AgentConfig.from_env(
@@ -134,8 +158,10 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             set_models=Mock(),
             set_hero_card=Mock(),
             set_technologies=Mock(),
+            set_agent_state=Mock(),
             set_barge_in_state=Mock(),
             add_barge_in_event=Mock(),
+            add_fsm_event=Mock(),
             set_metric_panel=Mock(),
         )
         fake_web_server = SimpleNamespace(
@@ -149,6 +175,7 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self) -> None:
                 self.output = SimpleNamespace(transcription=None)
                 self.handlers: dict[str, list[object]] = {}
+                self.shutdown = Mock()
 
             def on(self, event: str, callback) -> None:
                 self.handlers.setdefault(event, []).append(callback)
@@ -158,12 +185,17 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
 
         fake_session = FakeSession()
         fake_ctx = SimpleNamespace(is_fake_job=lambda: True)
+        fake_agent = SimpleNamespace(
+            consume_terminal_shutdown=Mock(return_value=True),
+        )
 
         with (
             patch("voice_agent.app.AgentConfig.from_env", return_value=fake_config),
             patch("voice_agent.app.TranscriptWebServer", return_value=fake_web_server),
             patch("voice_agent.app.AgentSession", return_value=fake_session) as session_factory,
-            patch("voice_agent.app.AssistantAgent", return_value=object()),
+            patch("voice_agent.app.AssistantAgent", return_value=fake_agent) as agent_factory,
+            patch("voice_agent.app.request_console_process_exit") as console_exit,
+            patch("voice_agent.app.open_console_dashboard") as open_dashboard,
         ):
             await entrypoint(fake_ctx)
 
@@ -188,7 +220,9 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             preemptive_generation=False,
             user_away_timeout=30.0,
         )
+        self.assertFalse(agent_factory.call_args.kwargs["delete_room_on_hangup"])
         fake_web_server.start.assert_called_once_with()
+        open_dashboard.assert_called_once_with(fake_web_server.url)
         fake_web_server.close.assert_not_called()
         fake_store.set_models.assert_called_once()
         fake_store.set_hero_card.assert_called_once_with(
@@ -200,6 +234,17 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("close", fake_session.handlers)
         self.assertIn("agent_false_interruption", fake_session.handlers)
 
+        agent_state_handler = fake_session.handlers["agent_state_changed"][0]
+        agent_state_handler(
+            SimpleNamespace(old_state="speaking", new_state="listening", created_at=1.0)
+        )
+        fake_agent.consume_terminal_shutdown.assert_called_once_with(
+            old_state="speaking",
+            new_state="listening",
+        )
+        fake_session.shutdown.assert_called_once_with(drain=True)
+
         close_handler = fake_session.handlers["close"][0]
         close_handler(None)
         fake_web_server.close.assert_called_once_with()
+        console_exit.assert_called_once_with()

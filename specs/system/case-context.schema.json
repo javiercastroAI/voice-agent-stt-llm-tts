@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "case-context.schema.json",
+  "title": "Runtime collections case context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "creditor_name",
+    "customer_name",
+    "locale",
+    "disclosure_summary",
+    "available_resolution_types"
+  ],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "creditor_name": {"type": "string", "minLength": 1},
+    "customer_name": {"type": "string", "minLength": 1},
+    "locale": {"type": "string", "minLength": 1},
+    "disclosure_summary": {"type": "string", "minLength": 1},
+    "available_resolution_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{0,79}$"
+      },
+      "uniqueItems": true
+    },
+    "product_name": {"type": "string", "minLength": 1},
+    "amount_minor": {"type": "integer", "minimum": 0},
+    "currency": {"type": "string", "minLength": 3},
+    "due_date": {"type": "string", "format": "date"},
+    "reference": {"type": "string", "minLength": 1},
+    "metadata": {"type": "object"}
+  }
+}

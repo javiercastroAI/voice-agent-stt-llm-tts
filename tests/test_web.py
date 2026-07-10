@@ -38,6 +38,7 @@ class TranscriptStoreTests(unittest.TestCase):
         self.assertEqual(snapshot["user_state"], "speaking")
         self.assertEqual(snapshot["agent_state"], "speaking")
         self.assertEqual(snapshot["barge_in_state"]["state"], "monitoring")
+        self.assertEqual(snapshot["call_assessment"]["status"], "in_progress")
         self.assertEqual(snapshot["live_user_text"], "")
         self.assertEqual(snapshot["live_agent_text"], "")
         self.assertEqual(len(snapshot["messages"]), 2)
@@ -125,6 +126,55 @@ class TranscriptStoreTests(unittest.TestCase):
 
         self.assertEqual(snapshot["barge_in_events"][0]["type"], "candidate_detected")
 
+    def test_snapshot_projects_live_fsm_state_and_response_evidence(self) -> None:
+        store = TranscriptStore()
+        store.add_fsm_event(
+            {
+                "type": "fsm_transition",
+                "turnId": "turn-1",
+                "recordedAt": "2026-07-10T12:00:00+00:00",
+                "fromPhase": "resolution",
+                "toPhase": "confirmation",
+                "interpretedIntent": "resolution_selected",
+                "directive": "confirm_selected_resolution",
+                "guardReason": None,
+                "identityVerified": True,
+                "refusalCount": 0,
+                "resolutionType": "payment_plan",
+                "shouldEnd": False,
+                "interpreter": "openai_structured_output",
+            }
+        )
+        store.add_fsm_event(
+            {"type": "assistant_response", "turnId": "turn-1"}
+        )
+
+        snapshot = store.snapshot()
+
+        self.assertEqual(snapshot["fsm_state"]["phase"], "confirmation")
+        self.assertEqual(snapshot["fsm_state"]["intent"], "resolution_selected")
+        self.assertEqual(snapshot["fsm_state"]["resolution_type"], "payment_plan")
+        self.assertTrue(snapshot["fsm_transitions"][0]["response_recorded"])
+
+    def test_fsm_transition_history_is_bounded(self) -> None:
+        store = TranscriptStore()
+        for index in range(105):
+            store.add_fsm_event(
+                {
+                    "type": "fsm_transition",
+                    "turnId": f"turn-{index}",
+                    "fromPhase": "confirmation",
+                    "toPhase": "confirmation",
+                    "interpretedIntent": "unknown",
+                    "directive": "confirm_selected_resolution",
+                }
+            )
+
+        snapshot = store.snapshot()
+
+        self.assertEqual(len(snapshot["fsm_transitions"]), 100)
+        self.assertEqual(snapshot["fsm_transitions"][0]["turn_id"], "turn-5")
+
 
 class TranscriptWebServerTests(unittest.TestCase):
     def test_server_exposes_default_url_and_html_template(self) -> None:
@@ -140,6 +190,18 @@ class TranscriptWebServerTests(unittest.TestCase):
         self.assertIn("Live Metrics", _build_html())
         self.assertIn('id="metrics-grid"', _build_html())
         self.assertIn('id="barge-in-state"', _build_html())
+        self.assertIn('id="fsm-monitor"', _build_html())
+        self.assertIn('id="fsm-phase"', _build_html())
+        self.assertIn('id="fsm-timeline"', _build_html())
+        self.assertIn('id="call-assessment"', _build_html())
+        self.assertIn('id="assessment-verdict"', _build_html())
+        self.assertIn("Improvement opportunities", _build_html())
+        self.assertIn('let lastFsmFingerprint = ""', _build_html())
+        self.assertIn('let lastAssessmentFingerprint = ""', _build_html())
+        self.assertIn("fingerprint === lastAssessmentFingerprint", _build_html())
+        self.assertIn("fsmFingerprint === lastFsmFingerprint", _build_html())
+        self.assertNotIn("fsm-update", _build_html())
+        self.assertNotIn("transition-enter", _build_html())
         self.assertNotIn(">Identity<", _build_html())
         self.assertIn("DNAI", _build_html())
         self.assertEqual(store.snapshot()["messages"][0]["text"], "Test reply")

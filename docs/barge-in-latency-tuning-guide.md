@@ -153,6 +153,63 @@ de respuesta. No bajéis el cap hasta provocar frases incompletas.
 10. Comparad métricas y observaciones.
 11. Conservad el cambio solo si mejora el objetivo y no degrada los guardrails.
 
+### 6.1 Loop engineering manual
+
+En la fase actual, una persona sigue haciendo de llamante. El sistema mide la
+llamada, pero todavía no simula por sí mismo la voz humana a nivel de audio. El
+flujo de trabajo es:
+
+1. El tester humano ejecuta el paquete fijo de escenas.
+2. Se termina la llamada.
+3. Se registra la ejecución con telemetría, commit, configuración y veredicto
+   manual.
+4. El loop engineer revisa el informe y las notas humanas.
+5. Se elige un único cambio de mayor impacto.
+6. Se implementa y valida ese cambio.
+7. El tester repite el mismo paquete de escenas.
+
+El paquete versionado de escenas vive en:
+
+```text
+specs/scenarios/production-readiness.json
+```
+
+Después de terminar una llamada, registrad la ejecución:
+
+```bash
+python3 scripts/record-loop-run.py \
+  --profile production \
+  --manual-verdict unknown \
+  --notes "Anotar cortes, pausas, recuperaciones incorrectas o backchannels problemáticos"
+```
+
+Si queréis evaluar solo los eventos nuevos desde una marca anterior, pasad los
+ids guardados en el registro anterior:
+
+```bash
+python3 scripts/record-loop-run.py \
+  --profile production \
+  --voice-after-id 120 \
+  --barge-after-id 45 \
+  --manual-verdict pass \
+  --notes "Sin cortes; interrupción B correcta; backchannel C no descarriló"
+```
+
+El registro queda en `logs/loop-runs/` e incluye:
+
+- commit actual,
+- estado del working tree,
+- hash de `.env`,
+- id y versión del paquete de escenas,
+- rango de telemetría evaluado,
+- informe automático,
+- veredicto manual,
+- estado `readyForProduction`.
+
+No uséis `readyForProduction=true` como aprobación final aislada. La salida a
+producción requiere al menos tres ejecuciones representativas consecutivas,
+revisión humana y evidencia de validación.
+
 Formato recomendado de registro:
 
 ```text
@@ -472,6 +529,31 @@ regresiones:
 
 Si no hay suficientes turnos o interrupciones, la evaluación debe quedar como
 `insufficient_data`, no como éxito.
+
+Para candidatos a producción, usad el perfil estricto:
+
+```bash
+python3 scripts/evaluate-telemetry.py --profile production --json
+```
+
+Objetivo de producción:
+
+- `turn_confirmation_rate`: al menos 95%.
+- `false_candidate_rate`: como máximo 5%.
+- `immediate_mute_success_rate`: al menos 98%.
+- `average_overtalk_seconds`: como máximo 0.25 s.
+- `max_overtalk_seconds`: como máximo 1.0 s.
+- `llm_average_ttft_seconds`: como máximo 0.9 s.
+- `llm_max_ttft_seconds`: como máximo 2.0 s.
+- `tts_average_ttfb_seconds`: como máximo 0.9 s.
+- `tts_max_ttfb_seconds`: como máximo 2.0 s.
+- `final_fragmented_transcripts`: como máximo 5%.
+
+El perfil de laboratorio sigue siendo útil para exploración local:
+
+```bash
+python3 scripts/evaluate-telemetry.py --profile lab --json
+```
 
 ## 12. Guardrails
 

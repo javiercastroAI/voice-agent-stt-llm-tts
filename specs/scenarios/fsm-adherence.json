@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "id": "generic-fsm-adherence-v1",
+  "requiredPhaseCoverage": [
+    "opening",
+    "identity_verification",
+    "case_disclosure",
+    "recognition",
+    "objection_handling",
+    "resolution",
+    "confirmation",
+    "escalation",
+    "ended"
+  ],
+  "requiredGlobalGuardCoverage": [
+    "explicit_termination",
+    "wrong_party",
+    "requests_human",
+    "vulnerability_detected",
+    "refusal_limit_reached"
+  ],
+  "scenarios": [
+    {
+      "id": "recognized-case-resolution",
+      "covers": ["identity_verification", "case_disclosure", "resolution", "confirmation", "ended"],
+      "turns": [
+        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure", "expectedDirective": "disclose_case_and_ask_recognition"},
+        {"user": "Sí, reconozco el caso.", "intent": "recognizes_case", "expectedPhase": "resolution", "expectedDirective": "offer_case_approved_resolutions"},
+        {"user": "Prefiero un plan de pago.", "intent": "resolution_selected", "resolutionType": "payment_plan", "expectedPhase": "confirmation", "expectedDirective": "confirm_selected_resolution"},
+        {"user": "Confirmo.", "intent": "outcome_confirmed", "expectedPhase": "ended", "expectedDirective": "confirm_outcome_and_close", "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "pre-verification-reason",
+      "covers": ["opening", "identity_verification"],
+      "turns": [
+        {"user": "¿De qué se trata?", "intent": "asks_reason", "expectedPhase": "identity_verification", "expectedDirective": "give_pre_verification_reason_and_verify"}
+      ]
+    },
+    {
+      "id": "case-disclosed-recognition-step",
+      "covers": ["recognition"],
+      "turns": [
+        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure"},
+        {"user": "Ha terminado de explicar el caso.", "intent": "case_disclosed", "source": "system", "expectedPhase": "recognition", "expectedDirective": "ask_case_recognition"}
+      ]
+    },
+    {
+      "id": "dispute-and-escalation",
+      "covers": ["objection_handling", "escalation", "ended"],
+      "turns": [
+        {"user": "Soy la persona responsable.", "intent": "identity_confirmed", "expectedPhase": "case_disclosure"},
+        {"user": "Esto ya está pagado.", "intent": "objection_provided", "objectionType": "already_paid", "expectedPhase": "objection_handling", "expectedDirective": "clarify_and_review_objection"},
+        {"user": "No puede resolverse aquí.", "intent": "cannot_resolve", "expectedPhase": "escalation", "expectedDirective": "explain_limit_and_escalate"},
+        {"user": "Escalación registrada.", "intent": "escalation_completed", "source": "system", "expectedPhase": "ended", "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "wrong-party-guard",
+      "covers": ["wrong_party", "ended"],
+      "turns": [
+        {"user": "Se ha equivocado de persona.", "intent": "wrong_party", "expectedPhase": "ended", "expectedDirective": "close_wrong_party_without_disclosure", "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "two-refusals-guard",
+      "covers": ["refusal_limit_reached", "ended"],
+      "turns": [
+        {"user": "No quiero identificarme.", "intent": "identity_refused", "expectedPhase": "identity_verification", "expectedRefusalCount": 1},
+        {"user": "Ya he dicho que no.", "intent": "identity_refused", "expectedPhase": "ended", "expectedDirective": "close_after_refusal_limit", "expectedRefusalCount": 2, "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "explicit-termination-guard",
+      "covers": ["explicit_termination", "ended"],
+      "turns": [
+        {"user": "Termine la llamada.", "intent": "explicit_termination", "expectedPhase": "ended", "expectedDirective": "close_without_further_persuasion", "expectedShouldEnd": true}
+      ]
+    },
+    {
+      "id": "human-assistance-guard",
+      "covers": ["requests_human", "escalation"],
+      "turns": [
+        {"user": "Quiero hablar con una persona.", "intent": "requests_human", "expectedPhase": "escalation", "expectedDirective": "arrange_human_assistance"}
+      ]
+    },
+    {
+      "id": "vulnerability-guard",
+      "covers": ["vulnerability_detected", "escalation"],
+      "turns": [
+        {"user": "Estoy en una situación vulnerable.", "intent": "vulnerability_detected", "expectedPhase": "escalation", "expectedDirective": "apply_vulnerability_protocol"}
+      ]
+    }
+  ]
+}

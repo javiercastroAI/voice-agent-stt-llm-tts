@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from voice_agent.quality import (
+    QualityThresholds,
     evaluate_telemetry,
     load_barge_in_events_from_sqlite,
     load_voice_events_from_sqlite,
@@ -107,6 +108,42 @@ class TelemetryQualityTests(unittest.TestCase):
 
         self.assertEqual(report.status, "pass")
 
+    def test_production_profile_requires_stricter_latency_and_barge_in(self) -> None:
+        report = evaluate_telemetry(
+            voice_events=_voice_events(
+                llm_ttft=[0.6, 0.7, 0.8],
+                tts_ttfb=[0.8, 0.9, 1.2],
+            ),
+            barge_in_events=_barge_events(
+                detected_turns=20,
+                confirmed_turns=17,
+                ignored_turns=3,
+                overtalk=[0.10, 0.20, 0.30],
+            ),
+            thresholds=QualityThresholds.for_profile("production"),
+        )
+
+        self.assertEqual(report.status, "fail")
+        self.assertEqual(_component(report, "barge_in").status, "fail")
+        self.assertEqual(_component(report, "tts_latency").status, "warn")
+
+    def test_production_profile_passes_only_with_production_target_metrics(self) -> None:
+        report = evaluate_telemetry(
+            voice_events=_voice_events(
+                llm_ttft=[0.6, 0.7, 0.8],
+                tts_ttfb=[0.6, 0.7, 0.8],
+            ),
+            barge_in_events=_barge_events(
+                detected_turns=20,
+                confirmed_turns=20,
+                ignored_turns=0,
+                overtalk=[0.10, 0.20, 0.25],
+            ),
+            thresholds=QualityThresholds.for_profile("production"),
+        )
+
+        self.assertEqual(report.status, "pass")
+
 
 def _component(report, name: str):
     for component in report.components:
@@ -118,13 +155,15 @@ def _component(report, name: str):
 def _voice_events(
     *,
     final_fragmented: bool = False,
+    llm_ttft: list[float] | None = None,
     tts_ttfb: list[float] | None = None,
 ) -> list[dict[str, object]]:
+    llm_values = llm_ttft or [0.8, 1.0, 1.2]
     tts_values = tts_ttfb or [0.7, 0.9, 1.0]
     events: list[dict[str, object]] = []
     events.extend(
         {"type": "llm_metrics", "ttft_seconds": value}
-        for value in [0.8, 1.0, 1.2]
+        for value in llm_values
     )
     events.extend(
         {"type": "tts_metrics", "ttfb_seconds": value}
