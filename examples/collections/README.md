@@ -15,14 +15,24 @@ cp examples/collections/.env.example .env
 Set your real `OPENAI_API_KEY`. Add LiveKit credentials only when using `dev` or
 `start` modes.
 
-The example loads its behavior from:
+The example loads generic behavior and separate case data from:
 
 ```env
 AGENT_INSTRUCTIONS_FILE=prompts/collections-es.md
+CASE_CONTEXT_FILE=examples/collections/al-corriente.case.json
 ```
 
 Run locally:
 
 ```bash
 python -m voice_agent.app console
+```
+
+The demo speaks the outbound opening automatically. Set
+`FSM_AUTO_OPENING_ENABLED=false` to wait for the caller's first turn instead.
+
+After a call, evaluate its FSM trace with:
+
+```bash
+python scripts/evaluate-fsm-adherence.py --trace logs/fsm-adherence.jsonl
 ```

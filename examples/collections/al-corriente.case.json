@@ -1,0 +1,19 @@
+{
+  "case_id": "demo-al-corriente-cloudx-001",
+  "creditor_name": "MacroHard",
+  "customer_name": "Al Corriente S.L.",
+  "locale": "es-ES",
+  "disclosure_summary": "una mensualidad pendiente de CloudX por importe de 1.527 euros",
+  "product_name": "CloudX",
+  "amount_minor": 152700,
+  "currency": "EUR",
+  "available_resolution_types": [
+    "immediate_payment",
+    "payment_date",
+    "payment_plan",
+    "case_review"
+  ],
+  "metadata": {
+    "scenario": "fictional-demo"
+  }
+}

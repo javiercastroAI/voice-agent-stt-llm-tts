@@ -25,7 +25,7 @@ governance = ["planner", "review"]
 [commands]
 install = "python3 -m pip install -e ."
 spec_generate = "python3 scripts/generate-contract-artifacts.py"
-spec_validate = "python3 scripts/generate-contract-artifacts.py --check && python3 scripts/validate-specs.py"
+spec_validate = "python3 scripts/generate-contract-artifacts.py --check && python3 scripts/validate-specs.py && python3 scripts/generate-fsm-graph.py --check"
 build = "python3 -m compileall voice_agent backend shared tests"
 test = "python3 -m unittest discover -s tests -p 'test_*.py'"
 e2e = "echo 'Replace the e2e command with the real browser or system checks'"

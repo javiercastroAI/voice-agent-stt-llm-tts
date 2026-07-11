@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "id": "generic-outbound-collections-fsm",
+  "orchestrator": "langgraph-stategraph",
+  "transitionModel": "typed-declarative-registry",
+  "transitionSource": "voice_agent.conversation_fsm.TRANSITION_REGISTRY",
+  "generatedBusinessGraph": "docs/generated/fsm-business-graph.md",
+  "phases": [
+    "opening",
+    "identity_verification",
+    "case_disclosure",
+    "recognition",
+    "objection_handling",
+    "resolution",
+    "confirmation",
+    "escalation",
+    "ended"
+  ],
+  "sensitivePhases": [
+    "case_disclosure",
+    "recognition",
+    "objection_handling",
+    "resolution",
+    "confirmation"
+  ],
+  "globalTransitions": {
+    "explicit_termination": "ended",
+    "wrong_party": "ended",
+    "requests_human": "escalation",
+    "vulnerability_detected": "escalation"
+  },
+  "invariants": [
+    "Case details are runtime data and never graph topology.",
+    "Sensitive phases require every configured identity-verification field.",
+    "The LLM cannot directly mutate FSM state.",
+    "Explicit termination ends the call from every phase.",
+    "Two explicit refusals end the call without further persuasion.",
+    "Only case-approved resolution types can be selected.",
+    "Case review records a request and never implies that an unequipped system review ran.",
+    "Unambiguous acceptance of a proposed case review records the outcome once and closes without reconfirmation loops.",
+    "Internal case metadata is never exposed to the speaking model.",
+    "LiveKit remains responsible for the real-time voice pipeline."
+  ]
+}

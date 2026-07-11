@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "id": "production-readiness-v1",
+  "title": "Production readiness scenario pack",
+  "language": "es",
+  "purpose": "Repeatable manual caller scenes for interruption, barge-in, latency, and recovery tuning.",
+  "scenarios": [
+    {
+      "id": "normal-turn",
+      "title": "Normal turn",
+      "callerScript": "Si, soy la persona responsable. Digame.",
+      "timing": "Speak after the agent asks an opening question. Do not interrupt.",
+      "expected": [
+        "The system does not clip the end of the caller utterance.",
+        "The agent responds without an awkward delay.",
+        "EOU, LLM TTFT, and TTS TTFB are inside the active quality threshold profile."
+      ]
+    },
+    {
+      "id": "command-interruption",
+      "title": "Command interruption",
+      "callerScript": "Espere, yo no soy la persona responsable.",
+      "timing": "Start speaking while the agent is mid-sentence.",
+      "expected": [
+        "The agent stops speaking quickly.",
+        "The interruption is confirmed as a command.",
+        "The next agent response handles the caller's correction instead of continuing the old script."
+      ]
+    },
+    {
+      "id": "short-backchannel",
+      "title": "Short backchannel",
+      "callerScript": "Vale.",
+      "timing": "Say this briefly while the agent is speaking.",
+      "expected": [
+        "The system does not treat the backchannel as a full objection.",
+        "The conversation flow is not derailed.",
+        "If the agent adapts, it does so with a short acknowledgement."
+      ]
+    },
+    {
+      "id": "false-positive-noise",
+      "title": "False positive noise",
+      "callerScript": "No words. Use a cough, breath, table tap, or keyboard sound.",
+      "timing": "Make the noise while the agent is speaking.",
+      "expected": [
+        "The agent is not derailed by non-speech noise.",
+        "If a false interruption is detected, it is ignored or resumed.",
+        "False-candidate rate stays inside the active quality threshold profile."
+      ]
+    },
+    {
+      "id": "missed-interruption",
+      "title": "Missed interruption probe",
+      "callerScript": "Pare un momento, eso no es correcto.",
+      "timing": "Interrupt clearly and slightly louder than a normal turn.",
+      "expected": [
+        "The agent stops quickly enough that overtalk stays inside the active quality threshold profile.",
+        "The interruption is confirmed.",
+        "The recovery response addresses the correction."
+      ]
+    },
+    {
+      "id": "long-objection",
+      "title": "Long objection",
+      "callerScript": "Creo que esto ya esta pagado y ademas puede estar duplicado, porque recibimos dos avisos distintos.",
+      "timing": "Speak as a normal full objection. Do not rush.",
+      "expected": [
+        "The system does not clip the final words.",
+        "The final transcript is not fragmented.",
+        "The agent summarizes the objection and asks one concrete next question."
+      ]
+    },
+    {
+      "id": "consultation-recovery",
+      "title": "Consultation recovery",
+      "callerScript": "Reviselo un momento, porque no me cuadra.",
+      "timing": "Say this after the agent proposes a next step.",
+      "expected": [
+        "The agent does not stay silent indefinitely.",
+        "The agent simulates a brief review.",
+        "The agent returns with a result, limitation, or concrete next step."
+      ]
+    }
+  ],
+  "manualVerdictFields": [
+    "clipped_words",
+    "awkward_pause",
+    "wrong_recovery",
+    "backchannel_derailment",
+    "noise_derailment",
+    "overall_verdict"
+  ]
+}

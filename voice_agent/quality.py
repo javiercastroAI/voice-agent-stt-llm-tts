@@ -38,6 +38,37 @@ class QualityThresholds:
     final_fragmented_pass: float = 0.10
     final_fragmented_warn: float = 0.25
 
+    @classmethod
+    def for_profile(cls, profile: str) -> "QualityThresholds":
+        if profile == "lab":
+            return cls()
+        if profile == "production":
+            return cls(
+                min_barge_in_turns=6,
+                min_final_transcripts=7,
+                turn_confirmation_pass=0.95,
+                turn_confirmation_warn=0.90,
+                false_candidate_pass=0.05,
+                false_candidate_warn=0.10,
+                immediate_mute_pass=0.98,
+                immediate_mute_warn=0.95,
+                average_overtalk_pass_seconds=0.25,
+                average_overtalk_warn_seconds=0.50,
+                max_overtalk_pass_seconds=1.00,
+                max_overtalk_warn_seconds=2.00,
+                llm_average_ttft_pass_seconds=0.90,
+                llm_average_ttft_warn_seconds=1.50,
+                llm_max_ttft_pass_seconds=2.00,
+                llm_max_ttft_warn_seconds=3.00,
+                tts_average_ttfb_pass_seconds=0.90,
+                tts_average_ttfb_warn_seconds=1.50,
+                tts_max_ttfb_pass_seconds=2.00,
+                tts_max_ttfb_warn_seconds=3.00,
+                final_fragmented_pass=0.05,
+                final_fragmented_warn=0.10,
+            )
+        raise ValueError(f"Unknown quality threshold profile: {profile}")
+
 
 @dataclass(frozen=True)
 class QualityComponent:

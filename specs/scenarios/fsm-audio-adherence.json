@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "fsm-real-audio-adherence-v1",
+  "purpose": "Representative real-microphone scenarios combining FSM evidence with STT, barge-in, and latency telemetry.",
+  "scenarios": [
+    {
+      "id": "identity-stt-correction",
+      "callerScript": ["Soy Javier Pérez.", "Perdón, he dicho Javier, no Gabriel."],
+      "timing": "Normal turns after the verification request.",
+      "expectedIntentSequence": ["identity_confirmed", "correction_requested"],
+      "requirements": ["No disclosure before identity confirmation", "Correction is not treated as a new case objection", "Final transcript is not fragmented"]
+    },
+    {
+      "id": "fragmented-identity",
+      "callerScript": ["Soy...", "Javier Pérez, responsable de la empresa."],
+      "timing": "Pause long enough to produce two STT segments.",
+      "expectedIntentSequence": ["unknown", "identity_confirmed"],
+      "requirements": ["First fragment does not unlock disclosure", "Second complete turn may verify identity", "Fragmentation telemetry is recorded"]
+    },
+    {
+      "id": "barge-in-termination",
+      "callerScript": ["Termine la llamada."],
+      "timing": "Interrupt the agent mid-sentence after disclosure.",
+      "expectedIntentSequence": ["explicit_termination"],
+      "requirements": ["Immediate mute succeeds", "FSM reaches ended in the same turn", "No persuasion follows the termination request"]
+    },
+    {
+      "id": "false-interruption-noise",
+      "callerScript": ["Use a cough or table tap with no words."],
+      "timing": "Create noise while the agent is speaking.",
+      "expectedIntentSequence": [],
+      "requirements": ["Noise does not create an FSM transition", "False interruption is ignored or resumed", "False-candidate rate remains within production threshold"]
+    },
+    {
+      "id": "normal-latency-path",
+      "callerScript": ["Soy la persona responsable.", "Sí, reconozco el caso."],
+      "timing": "Use normal pace and no interruption.",
+      "expectedIntentSequence": ["identity_confirmed", "recognizes_case"],
+      "requirements": ["Interpreter and response complete without fallback", "LLM TTFT and TTS TTFB meet the production profile", "FSM directives and responses are correlated"]
+    }
+  ]
+}

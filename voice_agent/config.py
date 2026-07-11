@@ -9,6 +9,8 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_INTENT_MODEL = DEFAULT_OPENAI_MODEL
+DEFAULT_FSM_INTENT_TIMEOUT_SECONDS = 2.0
 DEFAULT_OPENAI_MAX_COMPLETION_TOKENS = 60
 DEFAULT_OPENAI_LLM_TEMPERATURE = 0.2
 DEFAULT_VOICE_PIPELINE_MODE = "controlled_fast"
@@ -27,6 +29,10 @@ DEFAULT_OPENAI_TTS_INSTRUCTIONS = (
     "Speak in Spanish from Spain with a natural, professional contact-center tone."
 )
 DEFAULT_AGENT_INSTRUCTIONS_FILE = "prompts/collections-es.md"
+DEFAULT_FSM_ENABLED = True
+DEFAULT_FSM_AUTO_OPENING_ENABLED = True
+DEFAULT_CASE_CONTEXT_FILE = "examples/collections/al-corriente.case.json"
+DEFAULT_FSM_TRACE_PATH: str | None = None
 DEFAULT_AGENT_INSTRUCTIONS_FALLBACK = (
     "You are a concise, professional voice assistant. Ask one clear question per turn."
 )
@@ -216,6 +222,8 @@ class AgentConfig:
     livekit_api_key: str | None
     livekit_api_secret: str | None
     openai_model: str = DEFAULT_OPENAI_MODEL
+    openai_intent_model: str = DEFAULT_OPENAI_INTENT_MODEL
+    fsm_intent_timeout_seconds: float = DEFAULT_FSM_INTENT_TIMEOUT_SECONDS
     openai_max_completion_tokens: int | None = DEFAULT_OPENAI_MAX_COMPLETION_TOKENS
     openai_llm_temperature: float = DEFAULT_OPENAI_LLM_TEMPERATURE
     voice_pipeline_mode: str = DEFAULT_VOICE_PIPELINE_MODE
@@ -232,6 +240,10 @@ class AgentConfig:
     openai_tts_speed: float = DEFAULT_OPENAI_TTS_SPEED
     openai_tts_instructions: str = DEFAULT_OPENAI_TTS_INSTRUCTIONS
     agent_instructions: str = DEFAULT_AGENT_INSTRUCTIONS
+    fsm_enabled: bool = DEFAULT_FSM_ENABLED
+    fsm_auto_opening_enabled: bool = DEFAULT_FSM_AUTO_OPENING_ENABLED
+    case_context_file: str = DEFAULT_CASE_CONTEXT_FILE
+    fsm_trace_path: str | None = DEFAULT_FSM_TRACE_PATH
     barge_in_enabled: bool = DEFAULT_BARGE_IN_ENABLED
     barge_in_turn_detection_mode: str | None = DEFAULT_BARGE_IN_TURN_DETECTION_MODE
     barge_in_endpointing_mode: str = DEFAULT_BARGE_IN_ENDPOINTING_MODE
@@ -266,6 +278,13 @@ class AgentConfig:
         source = dict(environ) if environ is not None else cls._load_runtime_env(load_dotenv_file)
 
         openai_model = _clean(source.get("OPENAI_MODEL")) or DEFAULT_OPENAI_MODEL
+        openai_intent_model = _clean(source.get("OPENAI_INTENT_MODEL")) or openai_model
+        fsm_intent_timeout_seconds = _clean_bounded_float(
+            source.get("FSM_INTENT_TIMEOUT_SECONDS"),
+            DEFAULT_FSM_INTENT_TIMEOUT_SECONDS,
+            minimum=0.1,
+            maximum=30.0,
+        )
         openai_max_completion_tokens = _clean_optional_int(
             source.get("OPENAI_MAX_COMPLETION_TOKENS"),
             DEFAULT_OPENAI_MAX_COMPLETION_TOKENS,
@@ -342,6 +361,8 @@ class AgentConfig:
             livekit_api_key=_clean(source.get("LIVEKIT_API_KEY")),
             livekit_api_secret=_clean(source.get("LIVEKIT_API_SECRET")),
             openai_model=openai_model,
+            openai_intent_model=openai_intent_model,
+            fsm_intent_timeout_seconds=fsm_intent_timeout_seconds,
             openai_max_completion_tokens=openai_max_completion_tokens,
             openai_llm_temperature=openai_llm_temperature,
             voice_pipeline_mode=voice_pipeline_mode,
@@ -358,6 +379,21 @@ class AgentConfig:
             openai_tts_speed=openai_tts_speed,
             openai_tts_instructions=openai_tts_instructions,
             agent_instructions=instructions,
+            fsm_enabled=_clean_bool(
+                source.get("FSM_ENABLED"),
+                DEFAULT_FSM_ENABLED,
+            ),
+            fsm_auto_opening_enabled=_clean_bool(
+                source.get("FSM_AUTO_OPENING_ENABLED"),
+                DEFAULT_FSM_AUTO_OPENING_ENABLED,
+            ),
+            case_context_file=(
+                _clean(source.get("CASE_CONTEXT_FILE")) or DEFAULT_CASE_CONTEXT_FILE
+            ),
+            fsm_trace_path=_clean_optional_string(
+                source.get("FSM_TRACE_PATH"),
+                DEFAULT_FSM_TRACE_PATH,
+            ),
             barge_in_enabled=_clean_bool(
                 source.get("BARGE_IN_ENABLED"),
                 DEFAULT_BARGE_IN_ENABLED,
@@ -478,3 +514,11 @@ class AgentConfig:
             raise ConfigError(
                 f"Missing required environment variables for `{command}`: {missing_text}"
             )
+
+        if self.fsm_enabled:
+            from .case_context import CaseContextError, load_case_context
+
+            try:
+                load_case_context(self.case_context_file)
+            except CaseContextError as exc:
+                raise ConfigError(str(exc)) from exc

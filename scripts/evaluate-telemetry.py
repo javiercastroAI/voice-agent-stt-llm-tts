@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from voice_agent.quality import (  # noqa: E402
+    QualityThresholds,
     evaluate_telemetry,
     load_barge_in_events_from_sqlite,
     load_events_from_jsonl,
@@ -23,6 +24,12 @@ def main() -> int:
     parser.add_argument("--barge-in", default="logs/barge-in-telemetry.sqlite3")
     parser.add_argument("--voice-after-id", type=int, default=0)
     parser.add_argument("--barge-after-id", type=int, default=0)
+    parser.add_argument(
+        "--profile",
+        choices=("lab", "production"),
+        default="lab",
+        help="Threshold profile to apply.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     args = parser.parse_args()
 
@@ -30,12 +37,19 @@ def main() -> int:
     barge_path = ROOT / args.barge_in
     voice_events = _load_events(voice_path, voice=True, after_id=args.voice_after_id)
     barge_events = _load_events(barge_path, voice=False, after_id=args.barge_after_id)
-    report = evaluate_telemetry(voice_events=voice_events, barge_in_events=barge_events)
+    thresholds = QualityThresholds.for_profile(args.profile)
+    report = evaluate_telemetry(
+        voice_events=voice_events,
+        barge_in_events=barge_events,
+        thresholds=thresholds,
+    )
 
     if args.json:
-        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        output = report.as_dict()
+        output["profile"] = args.profile
+        print(json.dumps(output, indent=2, sort_keys=True))
     else:
-        print(f"Telemetry quality: {report.status}")
+        print(f"Telemetry quality ({args.profile}): {report.status}")
         for component in report.components:
             print(f"- {component.name}: {component.status}")
             for reason in component.reasons:
