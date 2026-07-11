@@ -2,6 +2,8 @@
 
 ## A research platform for deterministic conversational control, continuous evidence, and low-latency spoken interaction
 
+**Author:** [Javier Castro](https://github.com/javiercastroAI) · DNAI · 2026
+
 This repository investigates a specific systems question:
 
 > How can a generative voice agent retain natural linguistic behaviour while
