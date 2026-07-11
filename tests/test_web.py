@@ -289,5 +289,10 @@ class TranscriptWebServerTests(unittest.TestCase):
             _build_html().index("Research provenance"),
             _build_html().index("Runtime instrumentation"),
         )
+        self.assertIn('class="header-provenance"', _build_html())
+        self.assertIn(
+            "grid-template-columns: minmax(280px, 1fr) auto auto auto",
+            _build_html(),
+        )
         self.assertNotIn('class="detail-card research-meta"', _build_html())
         self.assertEqual(store.snapshot()["messages"][0]["text"], "Test reply")

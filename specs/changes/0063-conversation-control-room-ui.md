@@ -45,9 +45,9 @@ red only for failures. The executable FSM graph is the visual signature.
   transcript behavior, metrics, assessment, and compliance semantics.
 - Improve first-viewport density, evidence hierarchy, graph prominence,
   transcript readability, keyboard focus, and responsive behavior.
-- Present `RESEARCH PROVENANCE`, `Javier Castro`, `DNAI`, and `2026` together
-  in the persistent command header; do not duplicate that provenance at the
-  bottom of the page.
+- Present `RESEARCH PROVENANCE`, `Javier Castro`, `DNAI`, and `2026` as a
+  compact, right-aligned command-header block; do not duplicate that
+  provenance at the bottom of the page.
 
 ## Human Approval
 
@@ -59,8 +59,8 @@ redesign and required it to remain reversible on a dedicated branch on
 
 - A viewer can identify the active speaker, current FSM phase, latest causal
   transition, and structural/spoken verdicts within three seconds.
-- Research provenance appears at the top of the console, above the product
-  name, and does not appear in the secondary evidence workspace.
+- Research provenance appears in the top-right command-header corner and does
+  not appear in the secondary evidence workspace.
 - Desktop widths show transcript at roughly 40 percent and FSM at roughly 60
   percent in one synchronized primary workspace.
 - At 390 px width the FSM precedes the transcript, the graph remains legible,
