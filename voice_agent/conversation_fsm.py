@@ -67,6 +67,7 @@ class CaseContext(TypedDict):
 
 class FSMPolicy(TypedDict):
     max_refusals: int
+    max_repeated_concept_turns: int
     verification_fields: list[str]
     pre_verification_reason: str
 
@@ -105,6 +106,8 @@ class ConversationState(TypedDict):
     should_end: bool
     event: TurnEvent
     matched_transition_id: str
+    repeated_concept: Optional[str]
+    repeated_concept_count: int
     transition_history: list[TransitionRecord]
 
 
@@ -161,6 +164,7 @@ SENSITIVE_PHASES = frozenset(
 
 DEFAULT_POLICY: FSMPolicy = {
     "max_refusals": 2,
+    "max_repeated_concept_turns": 3,
     "verification_fields": ["role", "name_and_first_surname"],
     "pre_verification_reason": "an administrative issue with a payment",
 }
@@ -193,6 +197,8 @@ def create_initial_state(
         "should_end": False,
         "event": no_event,
         "matched_transition_id": "initial_state",
+        "repeated_concept": None,
+        "repeated_concept_count": 0,
         "transition_history": [],
     }
 
@@ -261,6 +267,7 @@ def build_conversation_graph(*, checkpointer: Any | None = None):
 
     builder = StateGraph(ConversationState)
     builder.add_node("apply_global_guards", _apply_global_guards)
+    builder.add_node("apply_repetition_limit", _apply_repetition_limit)
     builder.add_node("enforce_invariants", _enforce_invariants)
 
     phase_nodes: dict[str, str] = {}
@@ -268,7 +275,7 @@ def build_conversation_graph(*, checkpointer: Any | None = None):
         node_name = f"phase_{phase.value}"
         phase_nodes[phase.value] = node_name
         builder.add_node(node_name, _apply_declared_phase_transition)
-        builder.add_edge(node_name, "enforce_invariants")
+        builder.add_edge(node_name, "apply_repetition_limit")
 
     builder.add_edge(START, "apply_global_guards")
     builder.add_conditional_edges(
@@ -276,6 +283,7 @@ def build_conversation_graph(*, checkpointer: Any | None = None):
         _route_after_global_guards,
         {**phase_nodes, "finalize": "enforce_invariants"},
     )
+    builder.add_edge("apply_repetition_limit", "enforce_invariants")
     builder.add_edge("enforce_invariants", END)
     return builder.compile(checkpointer=checkpointer)
 
@@ -330,6 +338,50 @@ def _route_after_global_guards(state: ConversationState) -> str:
     if state["guard_handled"]:
         return "finalize"
     return state["phase"]
+
+
+def _conversation_concept(state: ConversationState) -> str:
+    """Return the operator-visible concept being repeated on this turn."""
+
+    return f"{state['phase']}:{state['response_directive']}"
+
+
+def _repeated_concept_limit_reached(state: ConversationState) -> bool:
+    return (
+        state["repeated_concept_count"]
+        >= state["policy"]["max_repeated_concept_turns"]
+    )
+
+
+def _apply_repetition_limit(state: ConversationState) -> dict[str, Any]:
+    """Close a user turn that has repeated one unresolved concept three times.
+
+    A concept is the combined current FSM phase and response directive. The
+    counter advances only when a user turn leaves both unchanged, so normal
+    progress through the graph resets it. The terminal transition remains in
+    the canonical registry and therefore in the graph and adherence evidence.
+    """
+
+    if state["event"]["source"] != "user" or state["should_end"]:
+        return {"repeated_concept": None, "repeated_concept_count": 0}
+    if state["phase"] != state["previous_phase"]:
+        return {"repeated_concept": None, "repeated_concept_count": 0}
+
+    concept = _conversation_concept(state)
+    count = (
+        state["repeated_concept_count"] + 1
+        if state["repeated_concept"] == concept
+        else 1
+    )
+    updates: dict[str, Any] = {
+        "repeated_concept": concept,
+        "repeated_concept_count": count,
+    }
+    candidate = ConversationState(**{**state, **updates})
+    if REPETITION_LIMIT_TRANSITION.matches(candidate):
+        updates.update(REPETITION_LIMIT_TRANSITION.apply(candidate))
+        updates["guard_reason"] = "repetition_limit_reached"
+    return updates
 
 
 def _all_identity_fields_present(state: ConversationState) -> bool:
@@ -647,7 +699,23 @@ PHASE_TRANSITIONS: tuple[TransitionDefinition, ...] = (
 )
 
 
-TRANSITION_REGISTRY = (*GLOBAL_TRANSITIONS, *PHASE_TRANSITIONS)
+POST_PHASE_TRANSITIONS: tuple[TransitionDefinition, ...] = (
+    TransitionDefinition(
+        id="repetition_limit",
+        source=None,
+        intents=(),
+        target=CallPhase.ENDED,
+        directive="close_after_repetition_limit",
+        guard_name="repeated_concept_limit_reached",
+        guard=_repeated_concept_limit_reached,
+        diagram=True,
+    ),
+)
+
+REPETITION_LIMIT_TRANSITION = POST_PHASE_TRANSITIONS[0]
+
+
+TRANSITION_REGISTRY = (*GLOBAL_TRANSITIONS, *PHASE_TRANSITIONS, *POST_PHASE_TRANSITIONS)
 
 
 def validate_transition_registry() -> None:
@@ -857,6 +925,8 @@ def _validate_case(case: CaseContext) -> None:
 def _validate_policy(policy: FSMPolicy) -> None:
     if policy.get("max_refusals", 0) < 1:
         raise ValueError("max_refusals must be at least 1")
+    if policy.get("max_repeated_concept_turns", 0) < 1:
+        raise ValueError("max_repeated_concept_turns must be at least 1")
     if not policy.get("verification_fields"):
         raise ValueError("verification_fields must not be empty")
     if not policy.get("pre_verification_reason"):

@@ -225,9 +225,9 @@ class FSMAdherenceTests(unittest.TestCase):
 
         self.assertIn("repetitive_response_loop", {item.code for item in report.findings})
 
-    def test_stalled_phase_and_directive_fails_after_four_turns(self) -> None:
+    def test_stalled_phase_and_directive_fails_after_three_turns(self) -> None:
         events = []
-        for index in range(4):
+        for index in range(3):
             turn_id = f"turn-stalled-{index}"
             events.extend(
                 [

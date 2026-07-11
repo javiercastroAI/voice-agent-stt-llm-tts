@@ -62,6 +62,15 @@ class SpokenResponseComplianceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fail")
 
+    def test_repetition_limit_closing_question_fails(self) -> None:
+        result = evaluate_spoken_response(
+            transition("close_after_repetition_limit", should_end=True),
+            "We will end the call now. Would you like another option?",
+            case=CASE,
+        )
+
+        self.assertEqual(result["status"], "fail")
+
     def test_short_interrupted_response_remains_pending(self) -> None:
         result = evaluate_spoken_response(
             transition("verify_identity"),

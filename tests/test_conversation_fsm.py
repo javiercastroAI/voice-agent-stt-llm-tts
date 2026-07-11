@@ -274,6 +274,35 @@ class ConversationFSMTests(unittest.TestCase):
         self.assertEqual(second["phase"], CallPhase.ENDED.value)
         self.assertTrue(second["should_end"])
 
+    def test_three_unresolved_repetitions_close_the_call(self) -> None:
+        self.advance(TurnIntent.CALL_STARTED, source="system")
+
+        first = self.advance(TurnIntent.UNKNOWN)
+        second = self.advance(TurnIntent.UNKNOWN)
+        third = self.advance(TurnIntent.UNKNOWN)
+
+        self.assertEqual(first["repeated_concept_count"], 1)
+        self.assertEqual(second["repeated_concept_count"], 2)
+        self.assertEqual(third["repeated_concept_count"], 3)
+        self.assertEqual(third["phase"], CallPhase.ENDED.value)
+        self.assertTrue(third["should_end"])
+        self.assertEqual(third["matched_transition_id"], "repetition_limit")
+        self.assertEqual(third["guard_reason"], "repetition_limit_reached")
+        self.assertEqual(third["response_directive"], "close_after_repetition_limit")
+
+    def test_phase_progress_resets_the_repetition_counter(self) -> None:
+        self.advance(TurnIntent.CALL_STARTED, source="system")
+        self.advance(TurnIntent.UNKNOWN)
+        self.assertEqual(self.state["repeated_concept_count"], 1)
+
+        state = self.advance(
+            TurnIntent.IDENTITY_CONFIRMED,
+            verification_fields=list(DEFAULT_POLICY["verification_fields"]),
+        )
+
+        self.assertEqual(state["phase"], CallPhase.CASE_DISCLOSURE.value)
+        self.assertEqual(state["repeated_concept_count"], 0)
+
     def test_human_and_vulnerability_signals_escalate(self) -> None:
         for intent in (
             TurnIntent.REQUESTS_HUMAN,
@@ -394,6 +423,16 @@ class ConversationFSMTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "pass")
 
+    def test_repetition_limit_is_structurally_adherent(self) -> None:
+        result = evaluate_transition_structure(
+            transition_id="repetition_limit",
+            from_phase=CallPhase.IDENTITY_VERIFICATION.value,
+            to_phase=CallPhase.ENDED.value,
+            should_end=True,
+        )
+
+        self.assertEqual(result["status"], "pass")
+
     def test_unknown_transition_is_structural_failure(self) -> None:
         result = evaluate_transition_structure(
             transition_id="invented_transition",
@@ -430,6 +469,13 @@ class ConversationFSMValidationTests(unittest.TestCase):
     def test_rejects_unknown_intent(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown turn intent"):
             make_turn_event("model_invented_transition")
+
+    def test_rejects_non_positive_repetition_limit(self) -> None:
+        policy = dict(DEFAULT_POLICY)
+        policy["max_repeated_concept_turns"] = 0
+
+        with self.assertRaisesRegex(ValueError, "max_repeated_concept_turns"):
+            create_initial_state(case_fixture(), policy=policy)
 
     def test_checkpointed_graph_requires_thread_id(self) -> None:
         from langgraph.checkpoint.memory import InMemorySaver

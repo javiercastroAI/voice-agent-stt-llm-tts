@@ -18,6 +18,7 @@ _CLOSING_DIRECTIVES = frozenset(
         "close_without_further_persuasion",
         "close_wrong_party_without_disclosure",
         "close_after_refusal_limit",
+        "close_after_repetition_limit",
         "confirm_outcome_and_close",
         "confirm_escalation_and_close",
     }

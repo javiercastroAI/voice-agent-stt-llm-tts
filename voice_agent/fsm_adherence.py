@@ -120,6 +120,7 @@ _CLOSING_DIRECTIVES = {
     "close_without_further_persuasion",
     "close_wrong_party_without_disclosure",
     "close_after_refusal_limit",
+    "close_after_repetition_limit",
     "confirm_outcome_and_close",
     "confirm_escalation_and_close",
 }
@@ -285,7 +286,7 @@ def evaluate_trace(
                 directive,
                 stalled_count,
             )
-            if stalled_count == 4:
+            if stalled_count == 3:
                 findings.append(
                     AdherenceFinding(
                         "stalled_dialogue_loop",
@@ -307,6 +308,8 @@ def evaluate_trace(
             guard_coverage.add(intent)
         if transition.get("guardReason") == "refusal_limit_reached":
             guard_coverage.add("refusal_limit_reached")
+        if transition.get("guardReason") == "repetition_limit_reached":
+            guard_coverage.add("repetition_limit_reached")
 
         if _looks_like_payment_refusal(user_transcript):
             refusal_evidence_count = payment_refusals_by_call.get(call_id, 0) + 1

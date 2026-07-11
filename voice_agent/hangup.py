@@ -30,6 +30,14 @@ def build_terminal_farewell(state: Mapping[str, Any]) -> str:
             if spanish
             else "I understand your decision. Thank you for your time; have a good day."
         )
+    if directive == "close_after_repetition_limit":
+        return (
+            "No hemos podido avanzar en esta llamada, así que la finalizamos. "
+            "Gracias por su tiempo; que tenga un buen día."
+            if spanish
+            else "We have not been able to make progress in this call, so we will end it. "
+            "Thank you for your time; have a good day."
+        )
     if directive == "close_wrong_party_without_disclosure":
         return (
             "Disculpe la molestia. Gracias por su tiempo; que tenga un buen día."

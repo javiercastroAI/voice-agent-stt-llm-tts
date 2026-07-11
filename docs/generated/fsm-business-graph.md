@@ -36,6 +36,7 @@ flowchart LR
     CONFIRMATION -->|"confirmation_accepted: outcome_confirmed"| ENDED
     CONFIRMATION -->|"confirmation_corrected: correction_requested"| RESOLUTION
     ESCALATION -->|"escalation_completed: escalation_completed"| ENDED
+    ANY -->|"repetition_limit: continue [repeated_concept_limit_reached]"| ENDED
     ENDED --> END(("END"))
 ```
 

@@ -35,6 +35,7 @@
     "The LLM cannot directly mutate FSM state.",
     "Explicit termination ends the call from every phase.",
     "Two explicit refusals end the call without further persuasion.",
+    "Three consecutive unresolved repetitions of the same phase and response directive end the call directly.",
     "Only case-approved resolution types can be selected.",
     "Case review records a request and never implies that an unequipped system review ran.",
     "Unambiguous acceptance of a proposed case review records the outcome once and closes without reconfirmation loops.",

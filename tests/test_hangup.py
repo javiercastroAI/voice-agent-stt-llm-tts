@@ -67,6 +67,17 @@ class TerminalEndCallToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("?", farewell)
 
+    def test_deterministic_repetition_farewell_is_question_free(self) -> None:
+        farewell = build_terminal_farewell(
+            {
+                "case": {"locale": "en-GB"},
+                "response_directive": "close_after_repetition_limit",
+            }
+        )
+
+        self.assertIn("make progress", farewell)
+        self.assertNotIn("?", farewell)
+
     def test_deterministic_case_review_farewell_records_without_execution_claim(self) -> None:
         state = {
             "case": {"locale": "en-GB"},

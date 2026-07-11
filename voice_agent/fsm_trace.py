@@ -182,6 +182,8 @@ class FSMTraceRecorder:
                 "identityVerified": state["identity_verified"],
                 "verifiedFields": list(state["verified_fields"]),
                 "refusalCount": state["refusal_count"],
+                "repeatedConcept": state["repeated_concept"],
+                "repeatedConceptCount": state["repeated_concept_count"],
                 "resolutionType": state["resolution_type"],
                 "shouldEnd": state["should_end"],
                 "interpreter": event.get("evidence", {}).get("interpreter"),
