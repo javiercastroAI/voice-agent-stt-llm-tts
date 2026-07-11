@@ -284,4 +284,10 @@ class TranscriptWebServerTests(unittest.TestCase):
         self.assertNotIn("transition-enter", _build_html())
         self.assertNotIn(">Identity<", _build_html())
         self.assertIn("DNAI", _build_html())
+        self.assertIn("Research provenance", _build_html())
+        self.assertLess(
+            _build_html().index("Research provenance"),
+            _build_html().index("Runtime instrumentation"),
+        )
+        self.assertNotIn('class="detail-card research-meta"', _build_html())
         self.assertEqual(store.snapshot()["messages"][0]["text"], "Test reply")

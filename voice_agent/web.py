@@ -2148,6 +2148,48 @@ def _build_html() -> str:
       white-space: nowrap;
     }
 
+    .brand-provenance {
+      display: flex;
+      align-items: center;
+      min-height: 13px;
+      margin-bottom: 4px;
+    }
+
+    .brand-provenance .hero-card-title { display: none !important; }
+
+    .brand-provenance .hero-pill-list {
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+
+    .brand-provenance .hero-pill {
+      display: inline;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      color: #87918a;
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+    }
+
+    .brand-provenance .hero-pill:first-child {
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 720;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-provenance .hero-pill + .hero-pill::before {
+      content: "·";
+      margin: 0 7px;
+      color: #5e6861;
+    }
+
     .connection-block {
       display: flex;
       align-items: center;
@@ -2604,7 +2646,7 @@ def _build_html() -> str:
     .metric-row:hover { background: rgba(87, 232, 203, 0.035); }
 
     .overview-grid {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(240px, .6fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 0;
       margin: 0;
       border-color: var(--line);
@@ -2693,8 +2735,6 @@ def _build_html() -> str:
       .fsm-monitor { height: auto; min-height: 640px; max-height: none; border: 1px solid var(--line); }
       .transcript-panel { min-height: 560px; }
       .overview-grid { grid-template-columns: 1fr 1fr; }
-      .research-meta { grid-column: 1 / -1; border-top: 1px solid var(--line) !important; }
-      .overview-grid .research-meta { padding-left: 0; }
     }
 
     @media (max-width: 700px) {
@@ -2808,7 +2848,15 @@ def _build_html() -> str:
     <div class="brand-lockup">
       <span class="brand-signal" aria-hidden="true"></span>
       <div>
-        <p class="product-kicker">Deterministic conversation control</p>
+        <p class="product-kicker">Research provenance</p>
+        <div class="brand-provenance" aria-label="Research provenance">
+          <span id="hero-card-title" class="hero-card-title" hidden></span>
+          <div id="hero-pill-list" class="hero-pill-list">
+            <span class="hero-pill">Javier Castro</span>
+            <span class="hero-pill">DNAI</span>
+            <span class="hero-pill">2026</span>
+          </div>
+        </div>
         <h1 class="product-name">Externally Orchestrated Voice Agent</h1>
       </div>
     </div>
@@ -2970,15 +3018,6 @@ def _build_html() -> str:
           </div>
         </article>
 
-        <article class="detail-card research-meta">
-          <p class="detail-title">Research provenance</p>
-          <h3 id="hero-card-title" class="hero-card-title"></h3>
-          <div id="hero-pill-list" class="hero-pill-list">
-            <span class="hero-pill">Javier Castro</span>
-            <span class="hero-pill">DNAI</span>
-            <span class="hero-pill">2026</span>
-          </div>
-        </article>
       </section>
     </section>
   </main>
