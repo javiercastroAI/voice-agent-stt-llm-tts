@@ -57,6 +57,20 @@ class FSMTraceRecorder:
             state=state,
         )
 
+    def record_suppressed_user_turn(self, *, user_transcript: str, reason: str) -> None:
+        """Persist a rejected echo/noise turn without granting it FSM authority."""
+
+        self._write(
+            {
+                "version": 1,
+                "type": "user_input_suppressed",
+                "callId": self._call_id,
+                "recordedAt": self._timestamp(),
+                "userTranscript": user_transcript.strip(),
+                "reason": reason,
+            }
+        )
+
     def record_conversation_item(self, event: object) -> str | None:
         item = getattr(event, "item", None)
         if getattr(item, "type", None) != "message":

@@ -69,7 +69,7 @@ class AgentConfigTests(unittest.TestCase):
     def test_from_env_uses_instruction_default(self) -> None:
         config = AgentConfig.from_env({})
         self.assertEqual(config.agent_instructions, DEFAULT_AGENT_INSTRUCTIONS)
-        self.assertEqual(config.openai_max_completion_tokens, 60)
+        self.assertEqual(config.openai_max_completion_tokens, 40)
         self.assertEqual(config.openai_llm_temperature, 0.2)
         self.assertIn("recobro amistoso", config.agent_instructions)
         self.assertIn("Cada turno debe avanzar", config.agent_instructions)
@@ -90,7 +90,7 @@ class AgentConfigTests(unittest.TestCase):
         self.assertIn("No inventes vencimientos", config.agent_instructions)
         self.assertIn("máximo 8 palabras", config.agent_instructions)
         self.assertEqual(config.openai_intent_model, "gpt-4o-mini")
-        self.assertEqual(config.fsm_intent_timeout_seconds, 2.0)
+        self.assertEqual(config.fsm_intent_timeout_seconds, 5.0)
         self.assertTrue(config.fsm_enabled)
         self.assertTrue(config.fsm_auto_opening_enabled)
         self.assertEqual(
@@ -102,9 +102,9 @@ class AgentConfigTests(unittest.TestCase):
         self.assertEqual(config.openai_stt_model, "gpt-4o-transcribe-diarize")
         self.assertEqual(config.openai_fast_stt_model, "gpt-4o-mini-transcribe")
         self.assertTrue(config.openai_fast_stt_realtime)
-        self.assertEqual(config.openai_fast_stt_turn_silence_ms, 150)
+        self.assertEqual(config.openai_fast_stt_turn_silence_ms, 400)
         self.assertEqual(config.openai_fast_stt_prefix_padding_ms, 300)
-        self.assertEqual(config.openai_fast_stt_vad_threshold, 0.5)
+        self.assertEqual(config.openai_fast_stt_vad_threshold, 0.70)
         self.assertEqual(config.openai_stt_language, "es")
         self.assertIn("Spanish from Spain", config.openai_tts_instructions)
         self.assertEqual(config.openai_tts_response_format, "pcm")
@@ -113,17 +113,27 @@ class AgentConfigTests(unittest.TestCase):
         self.assertIsNone(config.barge_in_turn_detection_mode)
         self.assertEqual(config.barge_in_endpointing_mode, "dynamic")
         self.assertEqual(config.barge_in_interruption_mode, "vad")
-        self.assertEqual(config.barge_in_min_speech_seconds, 0.20)
+        self.assertEqual(config.silero_vad_activation_threshold, 0.70)
+        self.assertEqual(config.silero_vad_deactivation_threshold, 0.50)
+        self.assertEqual(config.silero_vad_min_speech_seconds, 0.40)
+        self.assertEqual(config.silero_vad_min_silence_seconds, 0.65)
+        self.assertEqual(config.silero_vad_prefix_padding_seconds, 0.30)
+        self.assertEqual(config.barge_in_min_speech_seconds, 0.50)
         self.assertEqual(config.barge_in_min_words, 2)
-        self.assertEqual(config.barge_in_false_interruption_timeout_seconds, 1.2)
+        self.assertEqual(config.barge_in_false_interruption_timeout_seconds, 2.0)
         self.assertTrue(config.barge_in_resume_false_interruption)
-        self.assertEqual(config.barge_in_min_endpointing_delay_seconds, 0.20)
-        self.assertEqual(config.barge_in_max_endpointing_delay_seconds, 0.55)
-        self.assertEqual(config.barge_in_min_consecutive_speech_delay_seconds, 0.10)
+        self.assertEqual(config.barge_in_min_endpointing_delay_seconds, 0.40)
+        self.assertEqual(config.barge_in_max_endpointing_delay_seconds, 1.20)
+        self.assertEqual(config.barge_in_min_consecutive_speech_delay_seconds, 0.20)
         self.assertFalse(config.barge_in_preemptive_generation)
         self.assertEqual(config.barge_in_user_away_timeout_seconds, 30.0)
         self.assertEqual(config.barge_in_confirmation_grace_seconds, 6.0)
-        self.assertTrue(config.barge_in_immediate_mute_enabled)
+        self.assertFalse(config.barge_in_immediate_mute_enabled)
+        self.assertTrue(config.barge_in_native_interruption_enabled)
+        self.assertTrue(config.barge_in_soft_pause_enabled)
+        self.assertEqual(config.barge_in_soft_recovery_delay_seconds, 1.50)
+        self.assertEqual(config.aec_warmup_seconds, 8.0)
+        self.assertEqual(config.echo_guard_post_speech_seconds, 1.2)
         self.assertIsNone(config.barge_in_telemetry_path)
         self.assertIsNone(config.barge_in_sqlite_path)
         self.assertIsNone(config.voice_metrics_telemetry_path)
@@ -174,6 +184,11 @@ class AgentConfigTests(unittest.TestCase):
                 "BARGE_IN_USER_AWAY_TIMEOUT_SECONDS": "none",
                 "BARGE_IN_CONFIRMATION_GRACE_SECONDS": "2.5",
                 "BARGE_IN_IMMEDIATE_MUTE_ENABLED": "false",
+                "SILERO_VAD_ACTIVATION_THRESHOLD": "0.8",
+                "SILERO_VAD_DEACTIVATION_THRESHOLD": "0.9",
+                "SILERO_VAD_MIN_SPEECH_SECONDS": "0.55",
+                "SILERO_VAD_MIN_SILENCE_SECONDS": "0.75",
+                "SILERO_VAD_PREFIX_PADDING_SECONDS": "0.25",
                 "BARGE_IN_TELEMETRY_PATH": "logs/test.jsonl",
                 "BARGE_IN_SQLITE_PATH": "logs/test.sqlite3",
                 "VOICE_METRICS_TELEMETRY_PATH": "logs/voice.jsonl",
@@ -196,6 +211,11 @@ class AgentConfigTests(unittest.TestCase):
         self.assertIsNone(config.barge_in_user_away_timeout_seconds)
         self.assertEqual(config.barge_in_confirmation_grace_seconds, 2.5)
         self.assertFalse(config.barge_in_immediate_mute_enabled)
+        self.assertEqual(config.silero_vad_activation_threshold, 0.8)
+        self.assertEqual(config.silero_vad_deactivation_threshold, 0.8)
+        self.assertEqual(config.silero_vad_min_speech_seconds, 0.55)
+        self.assertEqual(config.silero_vad_min_silence_seconds, 0.75)
+        self.assertEqual(config.silero_vad_prefix_padding_seconds, 0.25)
         self.assertEqual(config.barge_in_telemetry_path, "logs/test.jsonl")
         self.assertEqual(config.barge_in_sqlite_path, "logs/test.sqlite3")
         self.assertEqual(config.voice_metrics_telemetry_path, "logs/voice.jsonl")

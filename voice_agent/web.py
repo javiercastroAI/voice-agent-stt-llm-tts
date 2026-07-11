@@ -9,8 +9,13 @@ import json
 from threading import Lock, Thread
 
 from .call_assessment import assess_call
-from .conversation_fsm import CaseContext
+from .conversation_fsm import (
+    CaseContext,
+    dashboard_graph_spec,
+    evaluate_transition_structure,
+)
 from .diarized_stt import DiarizedTranscript
+from .response_compliance import evaluate_spoken_response
 
 DEFAULT_WEB_HOST = "127.0.0.1"
 DEFAULT_WEB_PORT = 8765
@@ -50,6 +55,7 @@ class TranscriptStore:
         self._barge_in_events: list[dict[str, object]] = []
         self._fsm_state: dict[str, object] = {
             "phase": "awaiting_start",
+            "transition_id": None,
             "intent": "none",
             "directive": "waiting_for_fsm",
             "guard_reason": None,
@@ -61,6 +67,17 @@ class TranscriptStore:
         }
         self._fsm_transitions: list[dict[str, object]] = []
         self._fsm_events: list[dict[str, object]] = []
+        self._fsm_adherence: dict[str, object] = {
+            "status": "pending",
+            "reason": "Awaiting the first FSM transition.",
+            "evaluated": 0,
+        }
+        self._spoken_compliance: dict[str, object] = {
+            "status": "pending",
+            "reason": "Awaiting the first assistant response.",
+            "evaluated": 0,
+            "required": 0,
+        }
         self._call_assessment = assess_call(
             events=self._fsm_events,
             fsm_state=self._fsm_state,
@@ -146,8 +163,15 @@ class TranscriptStore:
             }:
                 self._fsm_events.append(dict(event))
             if event_type == "fsm_transition":
+                structural = evaluate_transition_structure(
+                    transition_id=str(event.get("transitionId", "") or ""),
+                    from_phase=str(event.get("fromPhase", "")),
+                    to_phase=str(event.get("toPhase", "")),
+                    should_end=bool(event.get("shouldEnd", False)),
+                )
                 transition = {
                     "turn_id": turn_id,
+                    "transition_id": str(event.get("transitionId", "") or ""),
                     "recorded_at": str(event.get("recordedAt", "")),
                     "from_phase": str(event.get("fromPhase", "")),
                     "to_phase": str(event.get("toPhase", "")),
@@ -161,11 +185,17 @@ class TranscriptStore:
                     "interpreter": event.get("interpreter"),
                     "response_recorded": False,
                     "response_disposition": "pending",
+                    "assistant_text": "",
+                    "fsm_status": structural["status"],
+                    "fsm_reason": structural["reason"],
+                    "spoken_status": "pending",
+                    "spoken_reason": "Awaiting assistant response.",
                 }
                 self._fsm_transitions.append(transition)
                 self._fsm_transitions = self._fsm_transitions[-100:]
                 self._fsm_state = {
                     "phase": transition["to_phase"],
+                    "transition_id": transition["transition_id"],
                     "intent": transition["intent"],
                     "directive": transition["directive"],
                     "guard_reason": transition["guard_reason"],
@@ -178,14 +208,28 @@ class TranscriptStore:
             elif event_type == "assistant_response" and turn_id:
                 for transition in reversed(self._fsm_transitions):
                     if transition["turn_id"] == turn_id:
+                        assistant_text = str(event.get("assistantText", "") or "").strip()
+                        spoken = evaluate_spoken_response(
+                            transition,
+                            assistant_text,
+                            case=self._adherence_case,
+                        )
                         transition["response_recorded"] = True
                         transition["response_disposition"] = "recorded"
+                        transition["assistant_text"] = assistant_text
+                        transition["spoken_status"] = spoken["status"]
+                        transition["spoken_reason"] = spoken["reason"]
                         break
             elif event_type == "turn_superseded" and turn_id:
                 for transition in reversed(self._fsm_transitions):
                     if transition["turn_id"] == turn_id:
                         transition["response_disposition"] = "coalesced"
+                        transition["spoken_status"] = "coalesced"
+                        transition["spoken_reason"] = (
+                            "Turn was coalesced before a response was required."
+                        )
                         break
+            self._refresh_compliance_locked()
             self._call_assessment = assess_call(
                 events=self._fsm_events,
                 fsm_state=self._fsm_state,
@@ -305,6 +349,9 @@ class TranscriptStore:
                 "barge_in_kpis": dict(self._barge_in_state.get("kpis", {})),
                 "barge_in_events": [dict(event) for event in self._barge_in_events],
                 "fsm_state": dict(self._fsm_state),
+                "fsm_graph": dashboard_graph_spec(),
+                "fsm_adherence": dict(self._fsm_adherence),
+                "spoken_compliance": dict(self._spoken_compliance),
                 "fsm_transitions": [
                     dict(transition) for transition in self._fsm_transitions
                 ],
@@ -339,6 +386,50 @@ class TranscriptStore:
                     for message in self._messages
                 ],
             }
+
+    def _refresh_compliance_locked(self) -> None:
+        structural_failures = [
+            item for item in self._fsm_transitions if item.get("fsm_status") == "fail"
+        ]
+        if structural_failures:
+            structural = structural_failures[-1]
+            self._fsm_adherence = {
+                "status": "fail",
+                "reason": str(structural.get("fsm_reason") or "FSM route mismatch."),
+                "evaluated": len(self._fsm_transitions),
+            }
+        elif self._fsm_transitions:
+            self._fsm_adherence = {
+                "status": "pass",
+                "reason": "Every observed transition matches the executable FSM registry.",
+                "evaluated": len(self._fsm_transitions),
+            }
+
+        required = [
+            item
+            for item in self._fsm_transitions
+            if item.get("response_disposition") != "coalesced"
+        ]
+        failures = [item for item in required if item.get("spoken_status") == "fail"]
+        evaluated = sum(
+            item.get("spoken_status") in {"pass", "fail"} for item in required
+        )
+        if failures:
+            latest = failures[-1]
+            status = "fail"
+            reason = str(latest.get("spoken_reason") or "Spoken response mismatch.")
+        elif required and evaluated == len(required):
+            status = "pass"
+            reason = "Every recorded response complies with its FSM directive."
+        else:
+            status = "pending"
+            reason = "One or more responses are pending or incomplete."
+        self._spoken_compliance = {
+            "status": status,
+            "reason": reason,
+            "evaluated": evaluated,
+            "required": len(required),
+        }
 
     @staticmethod
     def _normalize(text: str) -> str:
@@ -989,6 +1080,153 @@ def _build_html() -> str:
       font-variant-numeric: tabular-nums;
     }
 
+    .fsm-graph-panel {
+      margin: 22px 0 18px;
+      padding: 18px 0;
+      border-top: 1px solid rgba(248, 250, 252, 0.12);
+      border-bottom: 1px solid rgba(248, 250, 252, 0.12);
+    }
+
+    .fsm-graph-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .fsm-graph-status {
+      margin: 0;
+      color: #8fa09d;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .fsm-verdicts {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .fsm-verdict {
+      padding: 5px 8px;
+      border: 1px solid rgba(192, 211, 206, 0.32);
+      border-radius: 999px;
+      color: #cddbd7;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .fsm-verdict.is-pass {
+      border-color: rgba(74, 222, 128, 0.56);
+      color: #8ce7ae;
+    }
+
+    .fsm-verdict.is-fail {
+      border-color: rgba(248, 113, 113, 0.68);
+      color: #fca5a5;
+    }
+
+    .fsm-verdict.is-pending { color: #a9b8b5; }
+
+    .fsm-graph-status {
+      max-width: 56ch;
+    }
+
+    .fsm-graph {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .fsm-graph-edge {
+      fill: none;
+      stroke: rgba(192, 211, 206, 0.34);
+      stroke-width: 1.6;
+    }
+
+    .fsm-graph-edge.is-global { stroke-dasharray: 4 4; }
+
+    .fsm-graph-edge.is-active {
+      stroke: var(--fsm-accent);
+      stroke-width: 3;
+      stroke-dasharray: none;
+    }
+
+    .fsm-graph-edge.is-runtime {
+      stroke: var(--fsm-accent);
+      stroke-width: 3;
+      stroke-dasharray: 6 4;
+    }
+
+    .fsm-graph-edge.is-structural-fail { stroke: #f87171; }
+
+    .fsm-graph-speech rect {
+      fill: #2a3533;
+      stroke: rgba(192, 211, 206, 0.48);
+    }
+
+    .fsm-graph-speech text {
+      fill: #cddbd7;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+
+    .fsm-graph-speech.is-pass rect { stroke: rgba(74, 222, 128, 0.72); }
+    .fsm-graph-speech.is-pass text { fill: #8ce7ae; }
+    .fsm-graph-speech.is-fail rect { stroke: rgba(248, 113, 113, 0.82); }
+    .fsm-graph-speech.is-fail text { fill: #fca5a5; }
+
+    .fsm-graph-node rect {
+      fill: rgba(248, 250, 252, 0.04);
+      stroke: rgba(192, 211, 206, 0.38);
+      stroke-width: 1.2;
+    }
+
+    .fsm-graph-node text {
+      fill: #cddbd7;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+
+    .fsm-graph-node.is-traversed rect {
+      fill: rgba(86, 214, 200, 0.12);
+      stroke: rgba(86, 214, 200, 0.66);
+    }
+
+    .fsm-graph-node.is-current rect {
+      fill: var(--fsm-accent);
+      stroke: var(--fsm-accent);
+      stroke-width: 2;
+    }
+
+    .fsm-graph-node.is-current text { fill: #17201f; }
+
+    .fsm-graph-node.is-terminal rect {
+      stroke: rgba(117, 223, 163, 0.8);
+      stroke-width: 1.5;
+    }
+
+    .fsm-graph-node.is-global rect {
+      fill: rgba(251, 191, 36, 0.08);
+      stroke: rgba(251, 191, 36, 0.58);
+      stroke-dasharray: 4 3;
+    }
+
+    .fsm-graph-node.is-global text {
+      fill: #f7cf70;
+      font-size: 10px;
+    }
+
     .fsm-timeline {
       display: grid;
       max-height: 260px;
@@ -998,7 +1236,7 @@ def _build_html() -> str:
 
     .fsm-transition {
       display: grid;
-      grid-template-columns: minmax(180px, 0.85fr) minmax(140px, 0.7fr) minmax(220px, 1.45fr) auto;
+      grid-template-columns: minmax(180px, 0.85fr) minmax(140px, 0.7fr) minmax(220px, 1.45fr) minmax(92px, auto);
       gap: 18px;
       align-items: center;
       padding: 13px 0;
@@ -1046,6 +1284,23 @@ def _build_html() -> str:
       background: var(--fsm-accent);
       box-shadow: 0 0 0 4px color-mix(in srgb, var(--fsm-accent) 18%, transparent);
     }
+
+    .fsm-transition-status {
+      display: grid;
+      justify-items: end;
+      gap: 5px;
+    }
+
+    .fsm-spoken-badge {
+      color: #a9b8b5;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .fsm-spoken-badge.is-pass { color: #8ce7ae; }
+    .fsm-spoken-badge.is-fail { color: #fca5a5; }
 
     .fsm-empty {
       padding: 24px 0 4px;
@@ -1435,6 +1690,25 @@ def _build_html() -> str:
     .fsm-transition { border-color: rgba(38, 51, 43, 0.12); }
     .fsm-transition { transition: background-color 160ms ease; }
     .fsm-transition:hover { background: rgba(255, 255, 255, 0.34); }
+    .fsm-graph-panel { border-color: rgba(38, 51, 43, 0.12); }
+    .fsm-graph-status { color: #68756b; }
+    .fsm-verdict { border-color: rgba(38, 51, 43, 0.20); color: #526158; }
+    .fsm-verdict.is-pass { border-color: rgba(35, 122, 75, 0.42); color: #237a4b; }
+    .fsm-verdict.is-fail { border-color: rgba(176, 55, 55, 0.46); color: #a33535; }
+    .fsm-graph-edge { stroke: rgba(38, 51, 43, 0.28); }
+    .fsm-graph-node rect { fill: rgba(255, 255, 255, 0.38); stroke: rgba(38, 51, 43, 0.28); }
+    .fsm-graph-node text { fill: #435048; }
+    .fsm-graph-node.is-current text { fill: #f7fbf8; }
+    .fsm-graph-node.is-global rect { fill: rgba(155, 106, 32, 0.08); stroke: rgba(155, 106, 32, 0.48); }
+    .fsm-graph-node.is-global text { fill: #82591e; }
+    .fsm-graph-speech rect { fill: #f7faf7; stroke: rgba(38, 51, 43, 0.28); }
+    .fsm-graph-speech text { fill: #526158; }
+    .fsm-graph-speech.is-pass rect { stroke: rgba(35, 122, 75, 0.58); }
+    .fsm-graph-speech.is-pass text { fill: #237a4b; }
+    .fsm-graph-speech.is-fail rect { stroke: rgba(176, 55, 55, 0.62); }
+    .fsm-graph-speech.is-fail text,
+    .fsm-spoken-badge.is-fail { color: #a33535; fill: #a33535; }
+    .fsm-spoken-badge.is-pass { color: #237a4b; }
 
     .overview-grid {
       gap: 0;
@@ -1740,6 +2014,8 @@ def _build_html() -> str:
     }
 
     @media (max-width: 560px) {
+      .fsm-graph-head { align-items: flex-start; flex-direction: column; }
+      .fsm-verdicts { justify-content: flex-start; }
       .metrics-section > .detail-title::after { display: none; }
       .metric-card--pipeline {
         grid-template-columns: 1fr;
@@ -1854,6 +2130,19 @@ def _build_html() -> str:
           </div>
         </div>
       </div>
+      <figure class="fsm-graph-panel" aria-labelledby="fsm-graph-label">
+        <div class="fsm-graph-head">
+          <div>
+            <p id="fsm-graph-label" class="fsm-kicker">Canonical graph · live position</p>
+            <p id="fsm-graph-status" class="fsm-graph-status">Awaiting the first FSM transition</p>
+          </div>
+          <div class="fsm-verdicts" aria-label="Live compliance verdicts">
+            <span id="fsm-structural-status" class="fsm-verdict is-pending">FSM …</span>
+            <span id="fsm-spoken-status" class="fsm-verdict is-pending">Speech …</span>
+          </div>
+        </div>
+        <svg id="fsm-graph" class="fsm-graph" viewBox="0 0 1000 470" role="img" aria-labelledby="fsm-graph-label fsm-graph-status"></svg>
+      </figure>
       <div class="fsm-trail-head">
         <p class="fsm-kicker">Transition evidence</p>
         <span id="fsm-count" class="fsm-count">0 transitions</span>
@@ -1897,6 +2186,7 @@ def _build_html() -> str:
     const feed = document.getElementById("feed");
     let lastFingerprint = "";
     let lastFsmFingerprint = "";
+    let lastFsmGraphFingerprint = "";
     let lastAssessmentFingerprint = "";
 
     function escapeHtml(value) {
@@ -1997,6 +2287,157 @@ def _build_html() -> str:
       return displayToken(value, "awaiting start").replaceAll("_", " ");
     }
 
+    const fsmGraphLayout = {
+      opening: { x: 78, y: 220 },
+      identity_verification: { x: 208, y: 220 },
+      case_disclosure: { x: 354, y: 104 },
+      recognition: { x: 506, y: 104 },
+      objection_handling: { x: 506, y: 336 },
+      resolution: { x: 654, y: 220 },
+      confirmation: { x: 802, y: 220 },
+      escalation: { x: 802, y: 390 },
+      ended: { x: 932, y: 220 },
+      any_active_phase: { x: 380, y: 410 },
+    };
+
+    function graphNodeLines(label) {
+      const words = displayPhase(label).split(" ");
+      if (words.length < 2) return [words.join(" ")];
+      const midpoint = Math.ceil(words.length / 2);
+      return [words.slice(0, midpoint).join(" "), words.slice(midpoint).join(" ")];
+    }
+
+    function graphPath(source, target, routeIndex) {
+      const origin = fsmGraphLayout[source];
+      const destination = fsmGraphLayout[target];
+      if (!origin || !destination) return "";
+      const offset = ((routeIndex % 3) - 1) * 10;
+      const direction = destination.x >= origin.x ? 1 : -1;
+      const startX = origin.x + direction * 58;
+      const endX = destination.x - direction * 58;
+      const controlX = Math.max(36, Math.abs(endX - startX) * 0.42);
+      return `M ${startX} ${origin.y + offset} C ${startX + direction * controlX} ${origin.y + offset}, ${endX - direction * controlX} ${destination.y + offset}, ${endX} ${destination.y + offset}`;
+    }
+
+    function runtimeGraphPath(source, target) {
+      const origin = fsmGraphLayout[source];
+      const destination = fsmGraphLayout[target];
+      if (!origin || !destination) return "";
+      if (source === target) {
+        return `M ${origin.x - 28} ${origin.y - 20} C ${origin.x - 54} ${origin.y - 68}, ${origin.x + 54} ${origin.y - 68}, ${origin.x + 28} ${origin.y - 20}`;
+      }
+      return graphPath(source, target, 1);
+    }
+
+    function complianceMarkerPosition(source, target) {
+      const origin = fsmGraphLayout[source];
+      const destination = fsmGraphLayout[target];
+      if (!origin || !destination) return null;
+      if (source === target) return { x: origin.x, y: origin.y - 58 };
+      return {
+        x: (origin.x + destination.x) / 2,
+        y: (origin.y + destination.y) / 2 - 16,
+      };
+    }
+
+    function verdictSymbol(status) {
+      if (status === "pass") return "✓";
+      if (status === "fail") return "✕";
+      return "…";
+    }
+
+    function renderVerdict(targetId, label, value) {
+      const status = displayToken(value && value.status, "pending");
+      const node = document.getElementById(targetId);
+      node.className = `fsm-verdict is-${status === "pass" || status === "fail" ? status : "pending"}`;
+      node.textContent = `${label} ${verdictSymbol(status)}`;
+      node.setAttribute("title", displayToken(value && value.reason, `${label} evaluation pending`));
+    }
+
+    function renderFSMGraph(graph, fsmState, transitions, fsmAdherence, spokenCompliance) {
+      const graphData = graph || {};
+      const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
+      const edges = Array.isArray(graphData.edges) ? graphData.edges : [];
+      const state = fsmState || {};
+      const trail = Array.isArray(transitions) ? transitions : [];
+      const latest = trail.length ? trail[trail.length - 1] : {};
+      const activeTransitionId = displayToken(state.transition_id || latest.transition_id, "");
+      const currentPhase = displayToken(state.phase, "awaiting_start");
+      const graphFingerprint = JSON.stringify(graphData) + JSON.stringify({
+        currentPhase,
+        activeTransitionId,
+        from: latest.from_phase,
+        to: latest.to_phase,
+        latestFsm: latest.fsm_status,
+        latestSpeech: latest.spoken_status,
+        fsmAdherence,
+        spokenCompliance,
+      });
+      if (graphFingerprint === lastFsmGraphFingerprint) return;
+      lastFsmGraphFingerprint = graphFingerprint;
+
+      const graphNode = document.getElementById("fsm-graph");
+      const statusNode = document.getElementById("fsm-graph-status");
+      const activeFrom = displayToken(latest.from_phase, "");
+      const activeTo = displayToken(latest.to_phase, "");
+      const activeLabel = activeTransitionId
+        ? `Latest transition: ${activeTransitionId.replaceAll("_", " ")}`
+        : "Awaiting the first FSM transition";
+      statusNode.textContent = currentPhase === "awaiting_start"
+        ? activeLabel
+        : `Current: ${displayPhase(currentPhase)} · ${activeLabel}`;
+      renderVerdict("fsm-structural-status", "FSM", fsmAdherence);
+      renderVerdict("fsm-spoken-status", "Speech", spokenCompliance);
+
+      let activeEdgeRendered = false;
+      let markerSource = activeFrom;
+      let markerTarget = activeTo;
+      const edgeMarkup = edges.map((edge, index) => {
+        const transitionIds = Array.isArray(edge.transition_ids) ? edge.transition_ids : [];
+        const isActive = transitionIds.includes(activeTransitionId)
+          || (!activeTransitionId && edge.source === activeFrom && edge.target === activeTo);
+        if (isActive) {
+          activeEdgeRendered = true;
+          markerSource = edge.source;
+          markerTarget = edge.target;
+        }
+        const label = transitionIds.join(", ").replaceAll("_", " ");
+        const structuralFailure = isActive && latest.fsm_status === "fail";
+        return `<path class="fsm-graph-edge${edge.global ? " is-global" : ""}${isActive ? " is-active" : ""}${structuralFailure ? " is-structural-fail" : ""}" d="${graphPath(edge.source, edge.target, index)}" marker-end="url(#fsm-arrow)"><title>${escapeHtml(label)}</title></path>`;
+      }).join("");
+
+      const runtimePath = !activeEdgeRendered && activeFrom && activeTo
+        ? runtimeGraphPath(activeFrom, activeTo)
+        : "";
+      const runtimeEdge = runtimePath
+        ? `<path class="fsm-graph-edge is-runtime${latest.fsm_status === "fail" ? " is-structural-fail" : ""}" d="${runtimePath}" marker-end="url(#fsm-arrow)"><title>${escapeHtml(activeLabel)}</title></path>`
+        : "";
+
+      const marker = complianceMarkerPosition(markerSource, markerTarget);
+      const spokenStatus = displayToken(latest.spoken_status, "pending");
+      const spokenClass = spokenStatus === "pass" || spokenStatus === "fail"
+        ? spokenStatus
+        : "pending";
+      const spokenReason = displayToken(latest.spoken_reason, "Spoken response pending");
+      const spokenMarker = marker && activeTransitionId
+        ? `<g class="fsm-graph-speech is-${spokenClass}" transform="translate(${marker.x} ${marker.y})"><title>${escapeHtml(spokenReason)}</title><rect x="-38" y="-11" width="76" height="22" rx="11"></rect><text y="4">Speech ${verdictSymbol(spokenStatus)}</text></g>`
+        : "";
+
+      const globalNode = `<g class="fsm-graph-node is-global"><rect x="322" y="390" width="116" height="40" rx="7"></rect><text x="380" y="407"><tspan x="380" dy="0">global</tspan><tspan x="380" dy="13">guards</tspan></text></g>`;
+      const nodeMarkup = nodes.map((node) => {
+        const position = fsmGraphLayout[node.id];
+        if (!position) return "";
+        const lines = graphNodeLines(node.label);
+        const isCurrent = node.id === currentPhase;
+        const isTraversed = node.id === activeFrom || node.id === activeTo;
+        const lineOffset = lines.length === 1 ? 4 : -3;
+        const text = lines.map((line, lineIndex) => `<tspan x="${position.x}" dy="${lineIndex === 0 ? lineOffset : 13}">${escapeHtml(line)}</tspan>`).join("");
+        return `<g class="fsm-graph-node${node.terminal ? " is-terminal" : ""}${isTraversed ? " is-traversed" : ""}${isCurrent ? " is-current" : ""}"><rect x="${position.x - 58}" y="${position.y - 20}" width="116" height="40" rx="7"></rect><text x="${position.x}" y="${position.y}">${text}</text></g>`;
+      }).join("");
+
+      graphNode.innerHTML = `<title>Live finite state machine graph</title><desc>The current phase and latest executed transition are highlighted. A separate marker reports spoken-response compliance.</desc><defs><marker id="fsm-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke"></path></marker></defs>${edgeMarkup}${runtimeEdge}${globalNode}${nodeMarkup}${spokenMarker}`;
+    }
+
     function renderAssessment(assessment) {
       const value = assessment || {};
       const fingerprint = JSON.stringify(value);
@@ -2036,10 +2477,10 @@ def _build_html() -> str:
         .join("");
     }
 
-    function renderFSM(fsmState, transitions) {
+    function renderFSM(fsmState, transitions, graph, fsmAdherence, spokenCompliance) {
       const state = fsmState || {};
       const trail = Array.isArray(transitions) ? transitions : [];
-      const fsmFingerprint = JSON.stringify(state) + JSON.stringify(trail);
+      const fsmFingerprint = JSON.stringify(state) + JSON.stringify(trail) + JSON.stringify(fsmAdherence) + JSON.stringify(spokenCompliance);
       if (fsmFingerprint === lastFsmFingerprint) return;
       lastFsmFingerprint = fsmFingerprint;
 
@@ -2059,6 +2500,7 @@ def _build_html() -> str:
       const refusals = Number(state.refusal_count || 0) ? ` · refusals ${Number(state.refusal_count)}` : "";
       document.getElementById("fsm-outcome").textContent = `${identity}${resolution}${refusals} · ${terminal ? "terminal" : "active"}`;
       document.getElementById("fsm-count").textContent = `${trail.length} transition${trail.length === 1 ? "" : "s"}`;
+      renderFSMGraph(graph, state, trail, fsmAdherence, spokenCompliance);
 
       const timeline = document.getElementById("fsm-timeline");
       if (!trail.length) {
@@ -2082,7 +2524,10 @@ def _build_html() -> str:
             <div class="fsm-transition-primary">${escapeHtml(displayToken(item.directive))}</div>
             <div class="fsm-transition-secondary">${escapeHtml(displayToken(item.guard_reason, item.should_end ? "terminal" : "guard clear"))}</div>
           </div>
-          <span class="fsm-evidence${item.response_recorded || item.response_disposition === "coalesced" ? " is-recorded" : ""}" title="${item.response_recorded ? "Assistant response recorded" : item.response_disposition === "coalesced" ? "Turn coalesced into the next user turn" : "Awaiting assistant response"}"></span>
+          <div class="fsm-transition-status" title="${escapeHtml(displayToken(item.spoken_reason, "Spoken response pending"))}">
+            <span class="fsm-spoken-badge is-${item.spoken_status === "pass" || item.spoken_status === "fail" ? item.spoken_status : "pending"}">Speech ${verdictSymbol(item.spoken_status)}</span>
+            <span class="fsm-evidence${item.response_recorded || item.response_disposition === "coalesced" ? " is-recorded" : ""}"></span>
+          </div>
         </div>
       `).join("");
       if (wasAtBottom || trail.length <= 4) timeline.scrollTop = timeline.scrollHeight;
@@ -2155,7 +2600,13 @@ def _build_html() -> str:
       renderHeroCard(state.hero_card);
       renderTechnologies(state.technologies);
       renderAssessment(state.call_assessment);
-      renderFSM(state.fsm_state, state.fsm_transitions);
+      renderFSM(
+        state.fsm_state,
+        state.fsm_transitions,
+        state.fsm_graph,
+        state.fsm_adherence,
+        state.spoken_compliance,
+      );
 
       const messages = [...state.messages, ...buildLiveMessages(state)];
       const fingerprint = JSON.stringify(messages) + state.user_state + state.agent_state + JSON.stringify(state.barge_in_state) + JSON.stringify(state.models) + JSON.stringify(state.metrics) + JSON.stringify(state.hero_card) + JSON.stringify(state.technologies) + JSON.stringify(state.fsm_state) + JSON.stringify(state.fsm_transitions);

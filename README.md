@@ -640,8 +640,8 @@ python -m voice_agent.app start
 |---|---|---|
 | `OPENAI_MODEL` | `gpt-4o-mini` | Speaking model |
 | `OPENAI_INTENT_MODEL` | speaking model | Structured intent classifier |
-| `FSM_INTENT_TIMEOUT_SECONDS` | `2.0` | Fail-closed classifier timeout |
-| `OPENAI_MAX_COMPLETION_TOKENS` | `60` | Short-turn output cap |
+| `FSM_INTENT_TIMEOUT_SECONDS` | `5.0` | Fail-closed classifier timeout |
+| `OPENAI_MAX_COMPLETION_TOKENS` | `40` | Short-turn output cap |
 | `OPENAI_LLM_TEMPERATURE` | `0.2` | Speaking-model variation |
 | `FSM_ENABLED` | `true` | External FSM control |
 | `FSM_AUTO_OPENING_ENABLED` | `true` | Automatic outbound opening |
@@ -654,6 +654,8 @@ python -m voice_agent.app start
 |---|---|
 | `VOICE_PIPELINE_MODE` | `controlled_fast` |
 | `OPENAI_FAST_STT_MODEL` | `gpt-4o-mini-transcribe` |
+| `OPENAI_FAST_STT_VAD_THRESHOLD` | `0.70` |
+| `OPENAI_FAST_STT_TURN_SILENCE_MS` | `400` |
 | `OPENAI_STT_LANGUAGE` | `es` |
 | `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` |
 | `OPENAI_TTS_VOICE` | `marin` |
@@ -664,15 +666,32 @@ python -m voice_agent.app start
 
 The principal parameters are:
 
+- `SILERO_VAD_ACTIVATION_THRESHOLD` (`0.70`);
+- `SILERO_VAD_DEACTIVATION_THRESHOLD` (`0.50`);
+- `SILERO_VAD_MIN_SPEECH_SECONDS` (`0.40`);
+- `SILERO_VAD_MIN_SILENCE_SECONDS` (`0.65`);
+- `SILERO_VAD_PREFIX_PADDING_SECONDS` (`0.30`);
 - `BARGE_IN_ENABLED`;
 - `BARGE_IN_TURN_DETECTION_MODE`;
 - `BARGE_IN_INTERRUPTION_MODE`;
-- `BARGE_IN_MIN_SPEECH_SECONDS`;
-- `BARGE_IN_MIN_WORDS`;
+- `BARGE_IN_MIN_SPEECH_SECONDS` (`0.50`);
+- `BARGE_IN_MIN_WORDS` (`2`, except explicit one-word stop commands);
 - `BARGE_IN_FALSE_INTERRUPTION_TIMEOUT_SECONDS`;
 - `BARGE_IN_MIN_ENDPOINTING_DELAY_SECONDS`;
 - `BARGE_IN_MAX_ENDPOINTING_DELAY_SECONDS`;
-- `BARGE_IN_IMMEDIATE_MUTE_ENABLED`.
+- `BARGE_IN_IMMEDIATE_MUTE_ENABLED` (`false`).
+- `BARGE_IN_NATIVE_INTERRUPTION_ENABLED` (`true`);
+- `BARGE_IN_SOFT_PAUSE_ENABLED` (`true`).
+- `BARGE_IN_SOFT_RECOVERY_DELAY_SECONDS` (`1.50`, adaptive to recent STT delay).
+
+The application does not cancel on the first VAD edge. It pauses a compatible
+audio output while it waits for qualified STT, cancels only after that confirmation,
+and resumes when the candidate is false. Keep console AEC enabled; use headphones
+or separate input/output devices when speaker echo is present.
+
+`AEC_WARMUP_SECONDS` defaults to `8.0` and `ECHO_GUARD_POST_SPEECH_SECONDS` to
+`1.2`. During this window, short fragments and phrases copied from active agent
+speech are recorded as suppressed input rather than being given FSM authority.
 
 See [the latency and barge-in engineering guide](docs/barge-in-latency-tuning-guide.md)
 for interpretation and tuning.

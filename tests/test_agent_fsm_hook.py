@@ -6,7 +6,10 @@ from unittest.mock import Mock, PropertyMock, patch
 
 from livekit.agents.llm import StopResponse
 
-from voice_agent.agent import AssistantAgent
+from voice_agent.agent import AssistantAgent, build_silero_vad_options
+from voice_agent.barge_in import BargeTurnDecision
+from voice_agent.config import AgentConfig
+from voice_agent.echo_guard import EchoInputGuard
 from voice_agent.conversation_fsm import (
     ConversationFSM,
     TurnIntent,
@@ -62,12 +65,26 @@ class AssistantAgentFSMHookTests(unittest.IsolatedAsyncioTestCase):
         agent = AssistantAgent.__new__(AssistantAgent)
         agent._conversation_controller = controller
         agent._fsm_trace_recorder = None
+        agent._echo_input_guard = None
+        agent._consume_barge_turn_decision = None
         agent._auto_opening_enabled = auto_opening
         agent._opening_started = False
         agent._terminal_shutdown_requested = False
         agent._terminal_farewell_started = False
         agent._hang_up_tool_called = False
         return agent
+
+    async def test_noise_robust_silero_options_are_explicit(self) -> None:
+        self.assertEqual(
+            build_silero_vad_options(AgentConfig.from_env({})),
+            {
+                "activation_threshold": 0.70,
+                "deactivation_threshold": 0.50,
+                "min_speech_duration": 0.40,
+                "min_silence_duration": 0.65,
+                "prefix_padding_duration": 0.30,
+            },
+        )
 
     async def test_on_enter_schedules_one_interruptible_safe_opening(self) -> None:
         agent = self.make_agent(FakeController())
@@ -166,6 +183,55 @@ class AssistantAgentFSMHookTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(text_content="   "),
             )
 
+    async def test_echo_fragment_is_rejected_before_fsm_transition(self) -> None:
+        controller = FakeController()
+        agent = self.make_agent(controller)
+        agent._echo_input_guard = EchoInputGuard(
+            post_speech_seconds=1.2,
+            now=lambda: 1.0,
+        )
+        agent._echo_input_guard.on_agent_state_changed(
+            old_state="thinking",
+            new_state="speaking",
+            created_at=0.5,
+        )
+        trace = Mock()
+        agent._fsm_trace_recorder = trace
+
+        with self.assertRaises(StopResponse):
+            await agent.on_user_turn_completed(
+                FakeTurnContext(),
+                SimpleNamespace(text_content="Mhm."),
+            )
+
+        self.assertEqual(controller.calls, [])
+        trace.record_suppressed_user_turn.assert_called_once_with(
+            user_transcript="Mhm.",
+            reason="short_fragment_during_agent_playback",
+        )
+
+    async def test_rejected_barge_turn_cannot_advance_fsm(self) -> None:
+        controller = FakeController()
+        agent = self.make_agent(controller)
+        agent._consume_barge_turn_decision = lambda _transcript: BargeTurnDecision(
+            accepted=False,
+            reason="rejected_barge_in:playback_echo",
+        )
+        trace = Mock()
+        agent._fsm_trace_recorder = trace
+
+        with self.assertRaises(StopResponse):
+            await agent.on_user_turn_completed(
+                FakeTurnContext(),
+                SimpleNamespace(text_content="Dijo que tiene una."),
+            )
+
+        self.assertEqual(controller.calls, [])
+        trace.record_suppressed_user_turn.assert_called_once_with(
+            user_transcript="Dijo que tiene una.",
+            reason="rejected_barge_in:playback_echo",
+        )
+
     async def test_terminal_turn_speaks_deterministic_farewell_and_stops_llm(self) -> None:
         state = verification_state()
         state["should_end"] = True
@@ -199,6 +265,32 @@ class AssistantAgentFSMHookTests(unittest.IsolatedAsyncioTestCase):
             trace.record_terminal_speech_handle
         )
         self.assertTrue(agent._terminal_farewell_started)
+
+    async def test_objection_review_offer_is_deterministic_until_consent(self) -> None:
+        state = verification_state()
+        state["response_directive"] = "clarify_and_review_objection"
+        state["case"]["locale"] = "es-ES"
+        controller = FakeController(state)
+        agent = self.make_agent(controller)
+        session = SimpleNamespace(say=Mock())
+
+        with patch.object(
+            AssistantAgent,
+            "session",
+            new_callable=PropertyMock,
+            return_value=session,
+        ):
+            with self.assertRaises(StopResponse):
+                await agent.on_user_turn_completed(
+                    FakeTurnContext(),
+                    SimpleNamespace(text_content="Yo he pagado siempre."),
+                )
+
+        session.say.assert_called_once_with(
+            "Entiendo que no reconoce el importe. ¿Desea que registre una solicitud de revisión?",
+            allow_interruptions=True,
+            add_to_chat_ctx=True,
+        )
 
     async def test_disabled_controller_keeps_existing_agent_behavior(self) -> None:
         agent = self.make_agent(None)

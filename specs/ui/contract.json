@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 3,
   "surface": "console_transcript_web_ui",
   "requiredElementIds": [
     "user-state",
@@ -8,7 +8,10 @@
     "model-list",
     "technology-list",
     "metrics-grid",
-    "feed"
+    "feed",
+    "fsm-graph",
+    "fsm-structural-status",
+    "fsm-spoken-status"
   ],
   "requiredStateFields": [
     "user_state",
@@ -16,6 +19,9 @@
     "barge_in_state",
     "barge_in_kpis",
     "barge_in_events",
+    "fsm_graph",
+    "fsm_adherence",
+    "spoken_compliance",
     "models",
     "technologies",
     "metrics",

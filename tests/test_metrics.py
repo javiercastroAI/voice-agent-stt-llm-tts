@@ -238,6 +238,7 @@ class MetricsFormattingTests(unittest.TestCase):
             recorder = VoiceTelemetryRecorder(
                 jsonl_path=jsonl_path,
                 sqlite_path=sqlite_path,
+                call_id="call-test",
             )
 
             recorder.record_metric(
@@ -295,6 +296,7 @@ class MetricsFormattingTests(unittest.TestCase):
                 ).fetchall()
 
         self.assertEqual(lines[0]["type"], "stt_metrics")
+        self.assertEqual({line["callId"] for line in lines}, {"call-test"})
         self.assertEqual(lines[1]["type"], "eou_metrics")
         self.assertEqual(lines[1]["observed_speech_end_to_final_transcript_seconds"], 0.35)
         self.assertEqual(lines[2]["type"], "vad_metrics")

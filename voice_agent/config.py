@@ -10,16 +10,16 @@ from dotenv import dotenv_values
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_OPENAI_INTENT_MODEL = DEFAULT_OPENAI_MODEL
-DEFAULT_FSM_INTENT_TIMEOUT_SECONDS = 2.0
-DEFAULT_OPENAI_MAX_COMPLETION_TOKENS = 60
+DEFAULT_FSM_INTENT_TIMEOUT_SECONDS = 5.0
+DEFAULT_OPENAI_MAX_COMPLETION_TOKENS = 40
 DEFAULT_OPENAI_LLM_TEMPERATURE = 0.2
 DEFAULT_VOICE_PIPELINE_MODE = "controlled_fast"
 DEFAULT_OPENAI_STT_MODEL = "gpt-4o-transcribe-diarize"
 DEFAULT_OPENAI_FAST_STT_MODEL = "gpt-4o-mini-transcribe"
 DEFAULT_OPENAI_FAST_STT_REALTIME = True
-DEFAULT_OPENAI_FAST_STT_TURN_SILENCE_MS = 150
+DEFAULT_OPENAI_FAST_STT_TURN_SILENCE_MS = 400
 DEFAULT_OPENAI_FAST_STT_PREFIX_PADDING_MS = 300
-DEFAULT_OPENAI_FAST_STT_VAD_THRESHOLD = 0.5
+DEFAULT_OPENAI_FAST_STT_VAD_THRESHOLD = 0.70
 DEFAULT_OPENAI_STT_LANGUAGE = "es"
 DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
 DEFAULT_OPENAI_TTS_VOICE = "marin"
@@ -33,6 +33,11 @@ DEFAULT_FSM_ENABLED = True
 DEFAULT_FSM_AUTO_OPENING_ENABLED = True
 DEFAULT_CASE_CONTEXT_FILE = "examples/collections/al-corriente.case.json"
 DEFAULT_FSM_TRACE_PATH: str | None = None
+DEFAULT_SILERO_VAD_ACTIVATION_THRESHOLD = 0.70
+DEFAULT_SILERO_VAD_DEACTIVATION_THRESHOLD = 0.50
+DEFAULT_SILERO_VAD_MIN_SPEECH_SECONDS = 0.40
+DEFAULT_SILERO_VAD_MIN_SILENCE_SECONDS = 0.65
+DEFAULT_SILERO_VAD_PREFIX_PADDING_SECONDS = 0.30
 DEFAULT_AGENT_INSTRUCTIONS_FALLBACK = (
     "You are a concise, professional voice assistant. Ask one clear question per turn."
 )
@@ -40,17 +45,22 @@ DEFAULT_BARGE_IN_ENABLED = True
 DEFAULT_BARGE_IN_TURN_DETECTION_MODE: str | None = None
 DEFAULT_BARGE_IN_ENDPOINTING_MODE = "dynamic"
 DEFAULT_BARGE_IN_INTERRUPTION_MODE = "vad"
-DEFAULT_BARGE_IN_MIN_SPEECH_SECONDS = 0.20
+DEFAULT_BARGE_IN_MIN_SPEECH_SECONDS = 0.50
 DEFAULT_BARGE_IN_MIN_WORDS = 2
-DEFAULT_BARGE_IN_FALSE_INTERRUPTION_TIMEOUT_SECONDS = 1.2
+DEFAULT_BARGE_IN_FALSE_INTERRUPTION_TIMEOUT_SECONDS = 2.0
 DEFAULT_BARGE_IN_RESUME_FALSE_INTERRUPTION = True
-DEFAULT_BARGE_IN_MIN_ENDPOINTING_DELAY_SECONDS = 0.20
-DEFAULT_BARGE_IN_MAX_ENDPOINTING_DELAY_SECONDS = 0.55
-DEFAULT_BARGE_IN_MIN_CONSECUTIVE_SPEECH_DELAY_SECONDS = 0.10
+DEFAULT_BARGE_IN_MIN_ENDPOINTING_DELAY_SECONDS = 0.40
+DEFAULT_BARGE_IN_MAX_ENDPOINTING_DELAY_SECONDS = 1.20
+DEFAULT_BARGE_IN_MIN_CONSECUTIVE_SPEECH_DELAY_SECONDS = 0.20
 DEFAULT_BARGE_IN_PREEMPTIVE_GENERATION = False
 DEFAULT_BARGE_IN_USER_AWAY_TIMEOUT_SECONDS = 30.0
 DEFAULT_BARGE_IN_CONFIRMATION_GRACE_SECONDS = 6.0
-DEFAULT_BARGE_IN_IMMEDIATE_MUTE_ENABLED = True
+DEFAULT_BARGE_IN_IMMEDIATE_MUTE_ENABLED = False
+DEFAULT_BARGE_IN_NATIVE_INTERRUPTION_ENABLED = True
+DEFAULT_BARGE_IN_SOFT_PAUSE_ENABLED = True
+DEFAULT_BARGE_IN_SOFT_RECOVERY_DELAY_SECONDS = 1.50
+DEFAULT_AEC_WARMUP_SECONDS = 8.0
+DEFAULT_ECHO_GUARD_POST_SPEECH_SECONDS = 1.2
 DEFAULT_BARGE_IN_TELEMETRY_PATH: str | None = None
 DEFAULT_BARGE_IN_SQLITE_PATH: str | None = None
 DEFAULT_VOICE_METRICS_TELEMETRY_PATH: str | None = None
@@ -244,6 +254,11 @@ class AgentConfig:
     fsm_auto_opening_enabled: bool = DEFAULT_FSM_AUTO_OPENING_ENABLED
     case_context_file: str = DEFAULT_CASE_CONTEXT_FILE
     fsm_trace_path: str | None = DEFAULT_FSM_TRACE_PATH
+    silero_vad_activation_threshold: float = DEFAULT_SILERO_VAD_ACTIVATION_THRESHOLD
+    silero_vad_deactivation_threshold: float = DEFAULT_SILERO_VAD_DEACTIVATION_THRESHOLD
+    silero_vad_min_speech_seconds: float = DEFAULT_SILERO_VAD_MIN_SPEECH_SECONDS
+    silero_vad_min_silence_seconds: float = DEFAULT_SILERO_VAD_MIN_SILENCE_SECONDS
+    silero_vad_prefix_padding_seconds: float = DEFAULT_SILERO_VAD_PREFIX_PADDING_SECONDS
     barge_in_enabled: bool = DEFAULT_BARGE_IN_ENABLED
     barge_in_turn_detection_mode: str | None = DEFAULT_BARGE_IN_TURN_DETECTION_MODE
     barge_in_endpointing_mode: str = DEFAULT_BARGE_IN_ENDPOINTING_MODE
@@ -263,6 +278,11 @@ class AgentConfig:
     barge_in_user_away_timeout_seconds: float | None = DEFAULT_BARGE_IN_USER_AWAY_TIMEOUT_SECONDS
     barge_in_confirmation_grace_seconds: float = DEFAULT_BARGE_IN_CONFIRMATION_GRACE_SECONDS
     barge_in_immediate_mute_enabled: bool = DEFAULT_BARGE_IN_IMMEDIATE_MUTE_ENABLED
+    barge_in_native_interruption_enabled: bool = DEFAULT_BARGE_IN_NATIVE_INTERRUPTION_ENABLED
+    barge_in_soft_pause_enabled: bool = DEFAULT_BARGE_IN_SOFT_PAUSE_ENABLED
+    barge_in_soft_recovery_delay_seconds: float = DEFAULT_BARGE_IN_SOFT_RECOVERY_DELAY_SECONDS
+    aec_warmup_seconds: float = DEFAULT_AEC_WARMUP_SECONDS
+    echo_guard_post_speech_seconds: float = DEFAULT_ECHO_GUARD_POST_SPEECH_SECONDS
     barge_in_telemetry_path: str | None = DEFAULT_BARGE_IN_TELEMETRY_PATH
     barge_in_sqlite_path: str | None = DEFAULT_BARGE_IN_SQLITE_PATH
     voice_metrics_telemetry_path: str | None = DEFAULT_VOICE_METRICS_TELEMETRY_PATH
@@ -355,6 +375,21 @@ class AgentConfig:
         if max_endpointing_delay < min_endpointing_delay:
             max_endpointing_delay = min_endpointing_delay
 
+        silero_activation_threshold = _clean_bounded_float(
+            source.get("SILERO_VAD_ACTIVATION_THRESHOLD"),
+            DEFAULT_SILERO_VAD_ACTIVATION_THRESHOLD,
+            minimum=0.01,
+            maximum=1.0,
+        )
+        silero_deactivation_threshold = _clean_bounded_float(
+            source.get("SILERO_VAD_DEACTIVATION_THRESHOLD"),
+            DEFAULT_SILERO_VAD_DEACTIVATION_THRESHOLD,
+            minimum=0.01,
+            maximum=1.0,
+        )
+        if silero_deactivation_threshold > silero_activation_threshold:
+            silero_deactivation_threshold = silero_activation_threshold
+
         return cls(
             openai_api_key=_clean(source.get("OPENAI_API_KEY")),
             livekit_url=_clean(source.get("LIVEKIT_URL")),
@@ -393,6 +428,20 @@ class AgentConfig:
             fsm_trace_path=_clean_optional_string(
                 source.get("FSM_TRACE_PATH"),
                 DEFAULT_FSM_TRACE_PATH,
+            ),
+            silero_vad_activation_threshold=silero_activation_threshold,
+            silero_vad_deactivation_threshold=silero_deactivation_threshold,
+            silero_vad_min_speech_seconds=_clean_float(
+                source.get("SILERO_VAD_MIN_SPEECH_SECONDS"),
+                DEFAULT_SILERO_VAD_MIN_SPEECH_SECONDS,
+            ),
+            silero_vad_min_silence_seconds=_clean_float(
+                source.get("SILERO_VAD_MIN_SILENCE_SECONDS"),
+                DEFAULT_SILERO_VAD_MIN_SILENCE_SECONDS,
+            ),
+            silero_vad_prefix_padding_seconds=_clean_float(
+                source.get("SILERO_VAD_PREFIX_PADDING_SECONDS"),
+                DEFAULT_SILERO_VAD_PREFIX_PADDING_SECONDS,
             ),
             barge_in_enabled=_clean_bool(
                 source.get("BARGE_IN_ENABLED"),
@@ -450,6 +499,28 @@ class AgentConfig:
             barge_in_immediate_mute_enabled=_clean_bool(
                 source.get("BARGE_IN_IMMEDIATE_MUTE_ENABLED"),
                 DEFAULT_BARGE_IN_IMMEDIATE_MUTE_ENABLED,
+            ),
+            barge_in_native_interruption_enabled=_clean_bool(
+                source.get("BARGE_IN_NATIVE_INTERRUPTION_ENABLED"),
+                DEFAULT_BARGE_IN_NATIVE_INTERRUPTION_ENABLED,
+            ),
+            barge_in_soft_pause_enabled=_clean_bool(
+                source.get("BARGE_IN_SOFT_PAUSE_ENABLED"),
+                DEFAULT_BARGE_IN_SOFT_PAUSE_ENABLED,
+            ),
+            barge_in_soft_recovery_delay_seconds=_clean_bounded_float(
+                source.get("BARGE_IN_SOFT_RECOVERY_DELAY_SECONDS"),
+                DEFAULT_BARGE_IN_SOFT_RECOVERY_DELAY_SECONDS,
+                minimum=0.2,
+                maximum=5.0,
+            ),
+            aec_warmup_seconds=_clean_float(
+                source.get("AEC_WARMUP_SECONDS"),
+                DEFAULT_AEC_WARMUP_SECONDS,
+            ),
+            echo_guard_post_speech_seconds=_clean_float(
+                source.get("ECHO_GUARD_POST_SPEECH_SECONDS"),
+                DEFAULT_ECHO_GUARD_POST_SPEECH_SECONDS,
             ),
             barge_in_telemetry_path=_clean_optional_string(
                 source.get("BARGE_IN_TELEMETRY_PATH"),

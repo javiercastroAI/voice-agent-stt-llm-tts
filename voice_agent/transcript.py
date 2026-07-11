@@ -31,10 +31,12 @@ class ConversationTraceLogger:
         write: Writer | None = None,
         store: TranscriptStore | None = None,
         on_agent_text_finalized: Writer | None = None,
+        on_agent_text_delta: Writer | None = None,
     ) -> None:
         self._write = write or self._default_write
         self._store = store
         self._on_agent_text_finalized = on_agent_text_finalized
+        self._on_agent_text_delta = on_agent_text_delta
         self._seen_assistant_ids: set[str] = set()
         self._last_diarized_user_text: str | None = None
         self._streaming_agent_text = ""
@@ -129,6 +131,8 @@ class ConversationTraceLogger:
             self._write("\nAgent: ")
 
         self._streaming_agent_text += text
+        if self._on_agent_text_delta is not None:
+            self._on_agent_text_delta(text)
         self._write(text)
         if self._store is not None:
             self._store.append_agent_delta(text)

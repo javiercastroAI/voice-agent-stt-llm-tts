@@ -34,9 +34,11 @@ class VoiceTelemetryRecorder:
         *,
         jsonl_path: str | None = None,
         sqlite_path: str | None = None,
+        call_id: str | None = None,
     ) -> None:
         self._jsonl_path = jsonl_path
         self._sqlite_path = sqlite_path
+        self._call_id = call_id
         self._last_transcript_at: float | None = None
 
     def record_metric(self, metric: object) -> None:
@@ -78,6 +80,8 @@ class VoiceTelemetryRecorder:
         )
 
     def _write_event(self, event: dict[str, object]) -> None:
+        if self._call_id is not None:
+            event = {"callId": self._call_id, **event}
         if self._jsonl_path:
             path = Path(self._jsonl_path)
             path.parent.mkdir(parents=True, exist_ok=True)

@@ -708,6 +708,100 @@ def render_business_graph() -> str:
     return "\n".join(lines)
 
 
+def dashboard_graph_spec() -> dict[str, list[dict[str, Any]]]:
+    """Project the executable business topology for the live dashboard.
+
+    The dashboard consumes this minimized, serializable view instead of keeping
+    a second hand-maintained copy of the FSM topology in JavaScript.
+    """
+
+    edges_by_route: dict[tuple[str, str], dict[str, Any]] = {}
+    for transition in TRANSITION_REGISTRY:
+        if not transition.diagram or transition.target is None:
+            continue
+        source = (
+            transition.source.value
+            if transition.source is not None
+            else "any_active_phase"
+        )
+        target = transition.target.value
+        edge = edges_by_route.setdefault(
+            (source, target),
+            {
+                "source": source,
+                "target": target,
+                "transition_ids": [],
+                "intents": [],
+                "global": transition.global_guard,
+            },
+        )
+        edge["transition_ids"].append(transition.id)
+        edge["intents"].extend(intent.value for intent in transition.intents)
+
+    return {
+        "nodes": [
+            {
+                "id": phase.value,
+                "label": phase.value.replace("_", " "),
+                "terminal": phase is CallPhase.ENDED,
+            }
+            for phase in CallPhase
+        ],
+        "edges": list(edges_by_route.values()),
+    }
+
+
+def evaluate_transition_structure(
+    *,
+    transition_id: str,
+    from_phase: str,
+    to_phase: str,
+    should_end: bool,
+) -> dict[str, str]:
+    """Validate one observed route against the executable transition registry."""
+
+    transition = next(
+        (item for item in TRANSITION_REGISTRY if item.id == transition_id),
+        None,
+    )
+    if transition is None:
+        return {
+            "status": "fail",
+            "reason": f"Unknown transition identifier: {transition_id or 'missing'}.",
+        }
+    if transition.source is not None and transition.source.value != from_phase:
+        return {
+            "status": "fail",
+            "reason": (
+                f"{transition_id} started at {from_phase}; expected "
+                f"{transition.source.value}."
+            ),
+        }
+    expected_target = (
+        transition.target.value if transition.target is not None else from_phase
+    )
+    if to_phase != expected_target:
+        return {
+            "status": "fail",
+            "reason": (
+                f"{transition_id} ended at {to_phase}; expected {expected_target}."
+            ),
+        }
+    expected_terminal = expected_target == CallPhase.ENDED.value
+    if should_end != expected_terminal:
+        return {
+            "status": "fail",
+            "reason": (
+                f"{transition_id} terminal flag was {str(should_end).lower()}; "
+                f"expected {str(expected_terminal).lower()}."
+            ),
+        }
+    return {
+        "status": "pass",
+        "reason": f"{transition_id} matches the declared FSM route.",
+    }
+
+
 validate_transition_registry()
 
 

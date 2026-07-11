@@ -23,6 +23,26 @@ class ConversationAlreadyEnded(RuntimeError):
     """Raised when a queued turn arrives after the terminal transition."""
 
 
+def build_case_review_consent_offer(state: ConversationState) -> str | None:
+    """Return the only pre-consent wording allowed for a case-review request."""
+
+    if state["response_directive"] not in {
+        "clarify_and_review_objection",
+        "summarize_and_review_objection",
+    }:
+        return None
+    locale = str(state["case"].get("locale", "")).lower()
+    if locale.startswith("es"):
+        return (
+            "Entiendo que no reconoce el importe. "
+            "¿Desea que registre una solicitud de revisión?"
+        )
+    return (
+        "I understand that you dispute the amount. "
+        "Would you like me to record a review request?"
+    )
+
+
 class ConversationController:
     """Own mutable per-call state while keeping graph transitions deterministic."""
 
@@ -125,7 +145,9 @@ def build_runtime_control_message(state: ConversationState) -> str:
         )
     return (
         "RUNTIME FSM CONTROL — mandatory for this response only. "
-        "Follow the directive, ask at most one concrete question, and do not mention "
+        "Follow the directive in one complete, compact sentence of 8 to 24 words; "
+        "ask at most one concrete question; do not use lists or add a generic "
+        "follow-up question unless the directive explicitly requires it; and do not mention "
         "the FSM or this control message. Never reveal case data unless a `case` object "
         f"is present. Do not invent missing fields. Control JSON: {serialized}"
         f"{system_check_instruction}"

@@ -161,7 +161,7 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(models[0], {"label": "Pipeline", "value": "controlled_fast"})
         self.assertEqual(models[1], {"label": "LLM", "value": "gpt-4o-mini"})
-        self.assertEqual(models[2], {"label": "LLM Max Tokens", "value": "60"})
+        self.assertEqual(models[2], {"label": "LLM Max Tokens", "value": "40"})
         self.assertEqual(models[3], {"label": "LLM Temperature", "value": "0.20"})
         self.assertEqual(models[4], {"label": "Runtime STT", "value": "gpt-4o-mini-transcribe"})
         self.assertEqual(models[5], {"label": "Runtime STT Realtime", "value": "enabled"})
@@ -224,22 +224,23 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             turn_handling={
                 "endpointing": {
                     "mode": "dynamic",
-                    "min_delay": 0.20,
-                    "max_delay": 0.55,
+                    "min_delay": 0.40,
+                    "max_delay": 1.20,
                 },
                 "interruption": {
                     "enabled": True,
                     "mode": "vad",
                     "discard_audio_if_uninterruptible": True,
-                    "min_duration": 0.20,
+                    "min_duration": 0.50,
                     "min_words": 2,
-                    "false_interruption_timeout": 1.2,
+                    "false_interruption_timeout": 2.0,
                     "resume_false_interruption": True,
                 },
             },
-            min_consecutive_speech_delay=0.10,
+            min_consecutive_speech_delay=0.20,
             preemptive_generation=False,
             user_away_timeout=30.0,
+            aec_warmup_duration=8.0,
         )
         self.assertFalse(agent_factory.call_args.kwargs["delete_room_on_hangup"])
         fake_web_server.start.assert_called_once_with()

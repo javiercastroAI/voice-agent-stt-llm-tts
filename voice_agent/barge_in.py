@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections import deque
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -35,6 +37,21 @@ class BargeInStore(Protocol):
 
 
 ImmediateMuteCallback = Callable[[float], tuple[bool, str | None]]
+OutputControlCallback = Callable[[float], tuple[bool, str | None]]
+OutputActiveCallback = Callable[[], bool]
+PlaybackEchoCallback = Callable[[str], bool]
+
+_EXPLICIT_ONE_WORD_STOP_COMMANDS = frozenset(
+    {"para", "pare", "alto", "espera", "basta", "stop", "silencio"}
+)
+
+
+@dataclass(frozen=True)
+class BargeTurnDecision:
+    """Whether a completed transcript may receive FSM authority."""
+
+    accepted: bool
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -56,6 +73,9 @@ class BargeInPolicy:
     user_away_timeout_seconds: float | None
     confirmation_grace_seconds: float
     immediate_mute_enabled: bool
+    native_interruption_enabled: bool
+    soft_pause_enabled: bool
+    soft_recovery_delay_seconds: float
     telemetry_path: str | None
     sqlite_path: str | None
 
@@ -81,6 +101,9 @@ class BargeInPolicy:
             user_away_timeout_seconds=config.barge_in_user_away_timeout_seconds,
             confirmation_grace_seconds=config.barge_in_confirmation_grace_seconds,
             immediate_mute_enabled=config.barge_in_immediate_mute_enabled,
+            native_interruption_enabled=config.barge_in_native_interruption_enabled,
+            soft_pause_enabled=config.barge_in_soft_pause_enabled,
+            soft_recovery_delay_seconds=config.barge_in_soft_recovery_delay_seconds,
             telemetry_path=config.barge_in_telemetry_path,
             sqlite_path=config.barge_in_sqlite_path,
         )
@@ -93,7 +116,7 @@ class BargeInPolicy:
                 "max_delay": self.max_endpointing_delay_seconds,
             },
             "interruption": {
-                "enabled": self.enabled,
+                "enabled": self.native_interruption_enabled,
                 "mode": self.interruption_mode,
                 "discard_audio_if_uninterruptible": True,
                 "min_duration": self.min_speech_seconds,
@@ -128,6 +151,15 @@ class BargeInStats:
     immediate_mute_attempts: int = 0
     immediate_mute_successes: int = 0
     immediate_mute_failures: int = 0
+    soft_pause_attempts: int = 0
+    soft_pause_successes: int = 0
+    soft_pause_failures: int = 0
+    soft_resume_attempts: int = 0
+    soft_resume_successes: int = 0
+    soft_resume_failures: int = 0
+    confirmed_cancel_attempts: int = 0
+    confirmed_cancel_successes: int = 0
+    confirmed_cancel_failures: int = 0
 
 
 @dataclass
@@ -170,10 +202,22 @@ class BargeInController:
         *,
         store: BargeInStore | None = None,
         on_immediate_mute: ImmediateMuteCallback | None = None,
+        on_soft_pause: OutputControlCallback | None = None,
+        on_soft_resume: OutputControlCallback | None = None,
+        on_confirmed_interrupt: OutputControlCallback | None = None,
+        is_agent_output_active: OutputActiveCallback | None = None,
+        is_playback_echo: PlaybackEchoCallback | None = None,
+        call_id: str | None = None,
     ) -> None:
         self._policy = policy
         self._store = store
         self._on_immediate_mute = on_immediate_mute
+        self._on_soft_pause = on_soft_pause
+        self._on_soft_resume = on_soft_resume
+        self._on_confirmed_interrupt = on_confirmed_interrupt
+        self._is_agent_output_active = is_agent_output_active
+        self._is_playback_echo = is_playback_echo
+        self._call_id = call_id
         self._stats = BargeInStats()
         self._agent_state = "initializing"
         self._user_state = "listening"
@@ -184,7 +228,13 @@ class BargeInController:
         self._candidate_ended_at: float | None = None
         self._candidate_agent_speaking_ended_at: float | None = None
         self._candidate_muted_at: float | None = None
+        self._candidate_resumed_at: float | None = None
         self._candidate_overtalk_recorded = False
+        self._candidate_soft_paused = False
+        self._candidate_confirmed_interrupt_requested = False
+        self._soft_recovery_handle: asyncio.TimerHandle | None = None
+        self._turn_decisions: deque[tuple[str, BargeTurnDecision]] = deque(maxlen=24)
+        self._awaiting_accepted_final = False
         self._agent_speech_started_at: float | None = None
         self._last_confirmed_at: float | None = None
         self._last_ignored_at: float | None = None
@@ -199,6 +249,7 @@ class BargeInController:
         self._ignored_turn_ids: set[int] = set()
         self._confirmation_delays: list[float] = []
         self._pending_transcript_delays: list[float] = []
+        self._recent_pending_transcript_delays: deque[float] = deque(maxlen=8)
         self._overtalk_durations: list[float] = []
         self._mute_latencies: list[float] = []
         self._cancel_latencies: list[float] = []
@@ -221,6 +272,16 @@ class BargeInController:
     @property
     def kpis(self) -> BargeInKpis:
         return self._build_kpis()
+
+    def consume_user_turn_decision(self, transcript: str) -> BargeTurnDecision | None:
+        """Return and consume the barge decision for this completed STT turn."""
+
+        normalized = self._normalize_transcript(transcript)
+        for index, (recorded, decision) in enumerate(self._turn_decisions):
+            if recorded == normalized:
+                del self._turn_decisions[index]
+                return decision
+        return None
 
     def on_agent_state_changed(self, event: AgentStateChangedEvent) -> None:
         self._expire_pending_candidate(event.created_at)
@@ -269,14 +330,18 @@ class BargeInController:
             self._publish()
             return
 
-        if event.new_state == "speaking" and self._agent_state == "speaking":
+        if event.new_state == "speaking" and self._agent_output_is_active():
             self._candidate_active = True
             self._candidate_has_transcript = False
             self._candidate_started_at = event.created_at
             self._candidate_ended_at = None
             self._candidate_agent_speaking_ended_at = None
             self._candidate_muted_at = None
+            self._candidate_resumed_at = None
             self._candidate_overtalk_recorded = False
+            self._candidate_soft_paused = False
+            self._candidate_confirmed_interrupt_requested = False
+            self._awaiting_accepted_final = False
             self._candidate_turn_id = self._agent_turn_id
             self._turn_had_candidate = True
             self._detected_turn_ids.add(self._agent_turn_id)
@@ -286,10 +351,11 @@ class BargeInController:
                 "User speech detected during agent speech; waiting for policy thresholds"
             )
             mute_result = self._attempt_immediate_mute(event.created_at)
-            if mute_result["immediate_mute_success"]:
-                self._state = "agent_audio_muted"
+            pause_result = self._attempt_soft_pause(event.created_at)
+            if mute_result["immediate_mute_success"] or pause_result["soft_pause_success"]:
+                self._state = "agent_audio_paused"
                 self._last_reason = (
-                    "User speech detected during agent speech; agent audio interruption requested"
+                    "User speech detected during agent speech; agent audio paused pending STT confirmation"
                 )
             self._record_event(
                 "candidate_detected",
@@ -297,13 +363,14 @@ class BargeInController:
                 reason=self._last_reason,
                 agent_turn_id=self._candidate_turn_id,
                 **mute_result,
+                **pause_result,
             )
         elif event.new_state != "speaking" and self._candidate_active:
             if not self._candidate_has_transcript:
                 self._state = "pending_transcript"
                 self._candidate_ended_at = event.created_at
                 self._last_reason = (
-                    "Candidate speech ended; waiting for delayed STT confirmation"
+                    "Candidate speech ended; holding audio for bounded STT recovery"
                 )
                 self._record_event(
                     "candidate_pending_transcript",
@@ -311,6 +378,7 @@ class BargeInController:
                     reason=self._last_reason,
                     agent_turn_id=self._candidate_turn_id,
                 )
+                self._schedule_soft_recovery()
             else:
                 self._candidate_ended_at = event.created_at
             self._candidate_active = False
@@ -329,6 +397,13 @@ class BargeInController:
 
         word_count = self._word_count(transcript)
         if not self._has_open_candidate(event.created_at):
+            if event.is_final and self._awaiting_accepted_final:
+                self._record_turn_decision(
+                    transcript, accepted=True, reason="qualified_barge_in"
+                )
+                self._awaiting_accepted_final = False
+                self._publish()
+                return
             if self._record_late_transcript_after_ignored(
                 event=event,
                 transcript=transcript,
@@ -337,12 +412,18 @@ class BargeInController:
                 self._publish()
             return
 
-        if word_count < self._policy.min_words:
+        qualified, rejection_reason = self._qualify_transcript(transcript, word_count)
+        if not qualified:
             if event.is_final and not self._candidate_active:
                 self._ignore_candidate(
                     created_at=event.created_at,
-                    reason="Delayed transcript did not meet the minimum word threshold",
-                    reason_code="below_min_words",
+                    reason=(
+                        "Candidate transcript matched recent agent playback"
+                        if rejection_reason == "playback_echo"
+                        else "Transcript did not meet the qualified interruption threshold"
+                    ),
+                    reason_code=rejection_reason or "below_min_words",
+                    user_transcript=transcript,
                 )
             self._publish()
             return
@@ -360,6 +441,7 @@ class BargeInController:
         pending_delay = self._pending_delay(event.created_at)
         if pending_delay is not None:
             self._pending_transcript_delays.append(pending_delay)
+            self._recent_pending_transcript_delays.append(pending_delay)
         transcript_class = self._classify_transcript(transcript)
         if transcript_class == "backchannel":
             self._stats.backchannel_confirmed += 1
@@ -371,6 +453,12 @@ class BargeInController:
 
         self._state = "interrupted"
         self._last_reason = "Qualified user transcript confirmed the interruption"
+        self._cancel_soft_recovery()
+        if event.is_final:
+            self._record_turn_decision(transcript, accepted=True, reason="qualified_barge_in")
+        else:
+            self._awaiting_accepted_final = True
+        cancel_result = self._attempt_confirmed_interrupt(event.created_at)
         self._record_event(
             "candidate_confirmed",
             created_at=event.created_at,
@@ -385,6 +473,7 @@ class BargeInController:
             confirmation_delay_seconds=confirmation_delay,
             pending_transcript_seconds=pending_delay,
             overtalk_seconds=self._current_overtalk(event.created_at),
+            **cancel_result,
         )
         self._record_candidate_overtalk(event.created_at)
         self._last_confirmed_at = event.created_at
@@ -394,6 +483,9 @@ class BargeInController:
         self._candidate_ended_at = None
         self._candidate_agent_speaking_ended_at = None
         self._candidate_muted_at = None
+        self._candidate_resumed_at = None
+        self._candidate_soft_paused = False
+        self._candidate_confirmed_interrupt_requested = False
         self._publish()
 
     def on_agent_false_interruption(self, event: AgentFalseInterruptionEvent) -> None:
@@ -406,13 +498,18 @@ class BargeInController:
         if event.resumed:
             self._stats.resumed_false_interruptions += 1
 
+        resume_result = self._attempt_soft_resume(event.created_at)
+        self._cancel_soft_recovery()
         self._candidate_active = False
         self._candidate_has_transcript = False
         self._candidate_started_at = None
         self._candidate_ended_at = None
         self._candidate_agent_speaking_ended_at = None
         self._candidate_muted_at = None
+        self._candidate_resumed_at = None
         self._candidate_overtalk_recorded = False
+        self._candidate_soft_paused = False
+        self._candidate_confirmed_interrupt_requested = False
         self._state = "false_interruption_resumed" if event.resumed else "false_interruption"
         self._last_reason = (
             "False interruption resumed automatically"
@@ -425,6 +522,7 @@ class BargeInController:
             reason=self._last_reason,
             agent_turn_id=self._candidate_turn_id,
             resumed=event.resumed,
+            **resume_result,
         )
         self._publish()
 
@@ -434,6 +532,32 @@ class BargeInController:
         if self._candidate_ended_at is None:
             return False
         return (created_at - self._candidate_ended_at) <= self._policy.confirmation_grace_seconds
+
+    def _agent_output_is_active(self) -> bool:
+        """Include native-paused output, which LiveKit reports as listening."""
+
+        if self._agent_state == "speaking":
+            return True
+        if self._is_agent_output_active is None:
+            return False
+        try:
+            return bool(self._is_agent_output_active())
+        except Exception:
+            return False
+
+    def _qualify_transcript(self, transcript: str, word_count: int) -> tuple[bool, str | None]:
+        if self._is_playback_echo is not None:
+            try:
+                if self._is_playback_echo(transcript):
+                    return False, "playback_echo"
+            except Exception:
+                pass
+        if word_count >= self._policy.min_words:
+            return True, None
+        normalized = self._normalized_words(transcript)
+        if len(normalized) == 1 and normalized[0] in _EXPLICIT_ONE_WORD_STOP_COMMANDS:
+            return True, None
+        return False, "below_qualified_word_threshold"
 
     def _expire_pending_candidate(self, created_at: float) -> None:
         if self._candidate_ended_at is None or self._candidate_has_transcript:
@@ -452,7 +576,15 @@ class BargeInController:
         created_at: float,
         reason: str,
         reason_code: str,
+        user_transcript: str | None = None,
     ) -> None:
+        self._cancel_soft_recovery()
+        if user_transcript:
+            self._record_turn_decision(
+                user_transcript,
+                accepted=False,
+                reason=f"rejected_barge_in:{reason_code}",
+            )
         self._stats.ignored += 1
         if self._candidate_turn_id is not None:
             self._ignored_turn_ids.add(self._candidate_turn_id)
@@ -470,6 +602,7 @@ class BargeInController:
             confirmation_delay_seconds=self._confirmation_delay(created_at),
             pending_transcript_seconds=self._pending_delay(created_at),
             overtalk_seconds=self._current_overtalk(created_at),
+            **self._attempt_soft_resume(created_at),
         )
         self._record_candidate_overtalk(created_at)
         self._candidate_active = False
@@ -478,7 +611,10 @@ class BargeInController:
         self._candidate_ended_at = None
         self._candidate_agent_speaking_ended_at = None
         self._candidate_muted_at = None
+        self._candidate_resumed_at = None
         self._candidate_overtalk_recorded = False
+        self._candidate_soft_paused = False
+        self._candidate_confirmed_interrupt_requested = False
 
     def _attempt_immediate_mute(self, created_at: float) -> dict[str, object]:
         if not self._policy.immediate_mute_enabled:
@@ -534,6 +670,142 @@ class BargeInController:
             "immediate_mute_success": True,
             "immediate_mute_latency_seconds": 0.0,
             "immediate_mute_method": method_or_error,
+        }
+
+    def _attempt_soft_pause(self, created_at: float) -> dict[str, object]:
+        if not self._policy.soft_pause_enabled:
+            return self._control_result("soft_pause", enabled=False)
+        result = self._run_control_callback(
+            kind="soft_pause",
+            callback=self._on_soft_pause,
+            created_at=created_at,
+        )
+        if result["soft_pause_success"]:
+            self._candidate_soft_paused = True
+            self._candidate_muted_at = created_at
+            self._mute_latencies.append(0.0)
+        return result
+
+    def _attempt_soft_resume(self, created_at: float) -> dict[str, object]:
+        if not self._candidate_soft_paused:
+            return self._control_result("soft_resume", enabled=self._policy.soft_pause_enabled)
+        result = self._run_control_callback(
+            kind="soft_resume",
+            callback=self._on_soft_resume,
+            created_at=created_at,
+        )
+        if result["soft_resume_success"]:
+            self._candidate_soft_paused = False
+            self._candidate_resumed_at = created_at
+        return result
+
+    def _schedule_soft_recovery(self) -> None:
+        self._cancel_soft_recovery()
+        if not self._candidate_soft_paused:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._soft_recovery_handle = loop.call_later(
+            self._adaptive_soft_recovery_delay(),
+            self._recover_soft_paused_candidate,
+        )
+
+    def _adaptive_soft_recovery_delay(self) -> float:
+        if not self._recent_pending_transcript_delays:
+            return self._policy.soft_recovery_delay_seconds
+        average_delay = sum(self._recent_pending_transcript_delays) / len(
+            self._recent_pending_transcript_delays
+        )
+        return min(2.50, max(self._policy.soft_recovery_delay_seconds, average_delay + 0.25))
+
+    def _cancel_soft_recovery(self) -> None:
+        if self._soft_recovery_handle is not None:
+            self._soft_recovery_handle.cancel()
+            self._soft_recovery_handle = None
+
+    def _recover_soft_paused_candidate(self) -> None:
+        self._soft_recovery_handle = None
+        if self._candidate_ended_at is None or self._candidate_has_transcript:
+            return
+        created_at = time.time()
+        result = self._attempt_soft_resume(created_at)
+        if not result["soft_resume_success"]:
+            return
+        self._last_reason = "Soft pause recovered after bounded STT wait"
+        self._record_event(
+            "candidate_soft_recovered",
+            created_at=created_at,
+            reason=self._last_reason,
+            agent_turn_id=self._candidate_turn_id,
+            recovery_delay_seconds=self._adaptive_soft_recovery_delay(),
+            **result,
+        )
+        self._publish()
+
+    def _attempt_confirmed_interrupt(self, created_at: float) -> dict[str, object]:
+        if self._candidate_confirmed_interrupt_requested:
+            return self._control_result("confirmed_cancel", enabled=True)
+        result = self._run_control_callback(
+            kind="confirmed_cancel",
+            callback=self._on_confirmed_interrupt,
+            created_at=created_at,
+        )
+        self._candidate_confirmed_interrupt_requested = bool(
+            result["confirmed_cancel_success"]
+        )
+        return result
+
+    def _run_control_callback(
+        self,
+        *,
+        kind: str,
+        callback: OutputControlCallback | None,
+        created_at: float,
+    ) -> dict[str, object]:
+        if callback is None:
+            return self._control_result(kind, enabled=True, error="No output control callback configured")
+        attempts = f"{kind}_attempts"
+        successes = f"{kind}_successes"
+        failures = f"{kind}_failures"
+        setattr(self._stats, attempts, getattr(self._stats, attempts) + 1)
+        try:
+            success, method_or_error = callback(created_at)
+        except Exception as exc:
+            setattr(self._stats, failures, getattr(self._stats, failures) + 1)
+            return self._control_result(
+                kind,
+                enabled=True,
+                attempted=True,
+                error=f"{exc.__class__.__name__}: {exc}",
+            )
+        if not success:
+            setattr(self._stats, failures, getattr(self._stats, failures) + 1)
+            return self._control_result(
+                kind, enabled=True, attempted=True, error=method_or_error
+            )
+        setattr(self._stats, successes, getattr(self._stats, successes) + 1)
+        return self._control_result(
+            kind, enabled=True, attempted=True, success=True, method=method_or_error
+        )
+
+    @staticmethod
+    def _control_result(
+        kind: str,
+        *,
+        enabled: bool,
+        attempted: bool = False,
+        success: bool = False,
+        method: str | None = None,
+        error: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            f"{kind}_enabled": enabled,
+            f"{kind}_attempted": attempted,
+            f"{kind}_success": success,
+            f"{kind}_method": method,
+            f"{kind}_error": error,
         }
 
     def _record_candidate_overtalk(self, created_at: float) -> None:
@@ -593,12 +865,26 @@ class BargeInController:
     def _current_overtalk(self, created_at: float) -> float | None:
         if self._candidate_started_at is None:
             return None
-        ended_at = self._candidate_muted_at or self._candidate_agent_speaking_ended_at
+        if self._candidate_muted_at is None:
+            ended_at = self._candidate_agent_speaking_ended_at
+            if ended_at is None and self._agent_state == "speaking":
+                ended_at = created_at
+            return None if ended_at is None else max(0.0, ended_at - self._candidate_started_at)
+        if self._candidate_resumed_at is None:
+            return 0.0
+        ended_at = self._candidate_agent_speaking_ended_at
         if ended_at is None and self._agent_state == "speaking":
             ended_at = created_at
-        if ended_at is None:
-            return None
-        return max(0.0, ended_at - self._candidate_started_at)
+        return None if ended_at is None else max(0.0, ended_at - self._candidate_resumed_at)
+
+    def _record_turn_decision(self, transcript: str, *, accepted: bool, reason: str) -> None:
+        normalized = self._normalize_transcript(transcript)
+        if normalized:
+            self._turn_decisions.append((normalized, BargeTurnDecision(accepted, reason)))
+
+    @staticmethod
+    def _normalize_transcript(text: str) -> str:
+        return " ".join(text.lower().split())
 
     def _record_event(
         self,
@@ -610,6 +896,7 @@ class BargeInController:
     ) -> None:
         event: dict[str, object] = {
             "type": event_type,
+            "callId": self._call_id,
             "created_at": created_at,
             "recorded_at": time.time(),
             "state": self._state,
@@ -628,6 +915,15 @@ class BargeInController:
             "immediate_mute_attempts": self._stats.immediate_mute_attempts,
             "immediate_mute_successes": self._stats.immediate_mute_successes,
             "immediate_mute_failures": self._stats.immediate_mute_failures,
+            "soft_pause_attempts": self._stats.soft_pause_attempts,
+            "soft_pause_successes": self._stats.soft_pause_successes,
+            "soft_pause_failures": self._stats.soft_pause_failures,
+            "soft_resume_attempts": self._stats.soft_resume_attempts,
+            "soft_resume_successes": self._stats.soft_resume_successes,
+            "soft_resume_failures": self._stats.soft_resume_failures,
+            "confirmed_cancel_attempts": self._stats.confirmed_cancel_attempts,
+            "confirmed_cancel_successes": self._stats.confirmed_cancel_successes,
+            "confirmed_cancel_failures": self._stats.confirmed_cancel_failures,
             "detected_turns": len(self._detected_turn_ids),
             "confirmed_turns": len(self._confirmed_turn_ids),
             "ignored_turns": len(self._ignored_turn_ids),
@@ -773,9 +1069,20 @@ class BargeInController:
                 "stt_language_mismatches": self._stats.stt_language_mismatches,
                 "late_transcripts_after_ignored": self._stats.late_transcripts_after_ignored,
                 "immediate_mute_enabled": self._policy.immediate_mute_enabled,
+                "native_interruption_enabled": self._policy.native_interruption_enabled,
+                "soft_pause_enabled": self._policy.soft_pause_enabled,
                 "immediate_mute_attempts": self._stats.immediate_mute_attempts,
                 "immediate_mute_successes": self._stats.immediate_mute_successes,
                 "immediate_mute_failures": self._stats.immediate_mute_failures,
+                "soft_pause_attempts": self._stats.soft_pause_attempts,
+                "soft_pause_successes": self._stats.soft_pause_successes,
+                "soft_pause_failures": self._stats.soft_pause_failures,
+                "soft_resume_attempts": self._stats.soft_resume_attempts,
+                "soft_resume_successes": self._stats.soft_resume_successes,
+                "soft_resume_failures": self._stats.soft_resume_failures,
+                "confirmed_cancel_attempts": self._stats.confirmed_cancel_attempts,
+                "confirmed_cancel_successes": self._stats.confirmed_cancel_successes,
+                "confirmed_cancel_failures": self._stats.confirmed_cancel_failures,
                 "detected_turns": len(self._detected_turn_ids),
                 "confirmed_turns": len(self._confirmed_turn_ids),
                 "ignored_turns": len(self._ignored_turn_ids),
@@ -812,7 +1119,9 @@ class BargeInController:
                 {"label": "Avg Overtalk", "value": self._format_seconds(kpis.average_overtalk_seconds)},
                 {"label": "Max Overtalk", "value": self._format_seconds(kpis.max_overtalk_seconds)},
                 {"label": "Avg Mute Latency", "value": self._format_seconds(kpis.average_mute_latency_seconds)},
-                {"label": "Immediate Mute", "value": self._format_percent(kpis.immediate_mute_success_rate)},
+                {"label": "Soft Pause", "value": f"{self._stats.soft_pause_successes}/{self._stats.soft_pause_attempts}"},
+                {"label": "Soft Resume", "value": f"{self._stats.soft_resume_successes}/{self._stats.soft_resume_attempts}"},
+                {"label": "Confirmed Cancel", "value": f"{self._stats.confirmed_cancel_successes}/{self._stats.confirmed_cancel_attempts}"},
                 {"label": "Avg Cancel Latency", "value": self._format_seconds(kpis.average_cancel_latency_seconds)},
                 {"label": "Avg Recovery", "value": self._format_seconds(kpis.average_recovery_seconds)},
                 {"label": "Backchannel Rate", "value": self._format_percent(kpis.backchannel_rate)},
@@ -839,6 +1148,10 @@ class BargeInController:
     @staticmethod
     def _word_count(text: str) -> int:
         return len([word for word in text.split() if word.strip()])
+
+    @staticmethod
+    def _normalized_words(text: str) -> list[str]:
+        return re.findall(r"[a-záéíóúüñ]+", text.lower())
 
     def _build_kpis(self) -> BargeInKpis:
         detected = self._stats.detected

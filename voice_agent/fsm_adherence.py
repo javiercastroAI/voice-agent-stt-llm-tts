@@ -17,6 +17,7 @@ from .conversation_fsm import (
     create_initial_state,
     make_turn_event,
 )
+from .response_compliance import evaluate_spoken_response
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,18 @@ def evaluate_trace(
             else ""
         )
         user_transcript = str(transition.get("userTranscript") or "")
+
+        if response_text:
+            spoken = evaluate_spoken_response(transition, response_text, case=case)
+            if spoken["status"] == "fail":
+                findings.append(
+                    AdherenceFinding(
+                        "response_directive_mismatch",
+                        "fail",
+                        spoken["reason"],
+                        turn_id=turn_id,
+                    )
+                )
 
         if from_phase == to_phase and not should_end:
             previous_phase, previous_directive, previous_count = (

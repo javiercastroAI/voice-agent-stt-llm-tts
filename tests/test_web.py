@@ -132,6 +132,7 @@ class TranscriptStoreTests(unittest.TestCase):
             {
                 "type": "fsm_transition",
                 "turnId": "turn-1",
+                "transitionId": "resolution_selected",
                 "recordedAt": "2026-07-10T12:00:00+00:00",
                 "fromPhase": "resolution",
                 "toPhase": "confirmation",
@@ -152,9 +153,44 @@ class TranscriptStoreTests(unittest.TestCase):
         snapshot = store.snapshot()
 
         self.assertEqual(snapshot["fsm_state"]["phase"], "confirmation")
+        self.assertEqual(snapshot["fsm_state"]["transition_id"], "resolution_selected")
         self.assertEqual(snapshot["fsm_state"]["intent"], "resolution_selected")
         self.assertEqual(snapshot["fsm_state"]["resolution_type"], "payment_plan")
         self.assertTrue(snapshot["fsm_transitions"][0]["response_recorded"])
+        self.assertIn("nodes", snapshot["fsm_graph"])
+        self.assertTrue(
+            any(node["id"] == "confirmation" for node in snapshot["fsm_graph"]["nodes"])
+        )
+
+    def test_snapshot_separates_fsm_and_spoken_compliance(self) -> None:
+        store = TranscriptStore()
+        store.add_fsm_event(
+            {
+                "type": "fsm_transition",
+                "turnId": "turn-1",
+                "transitionId": "disclosure_fallback",
+                "fromPhase": "case_disclosure",
+                "toPhase": "case_disclosure",
+                "interpretedIntent": "identity_confirmed",
+                "directive": "disclose_case_and_ask_recognition",
+                "identityVerified": True,
+                "shouldEnd": False,
+            }
+        )
+        store.add_fsm_event(
+            {
+                "type": "assistant_response",
+                "turnId": "turn-1",
+                "assistantText": "Puede elegir un plan de pago o una fecha de pago. ¿Qué opción prefiere?",
+            }
+        )
+
+        snapshot = store.snapshot()
+
+        self.assertEqual(snapshot["fsm_adherence"]["status"], "pass")
+        self.assertEqual(snapshot["spoken_compliance"]["status"], "fail")
+        self.assertEqual(snapshot["fsm_transitions"][0]["spoken_status"], "fail")
+        self.assertIn("recognition was required", snapshot["fsm_transitions"][0]["spoken_reason"])
 
     def test_fsm_transition_history_is_bounded(self) -> None:
         store = TranscriptStore()
@@ -221,6 +257,10 @@ class TranscriptWebServerTests(unittest.TestCase):
         self.assertIn('id="barge-in-state"', _build_html())
         self.assertIn('id="fsm-monitor"', _build_html())
         self.assertIn('id="fsm-phase"', _build_html())
+        self.assertIn('id="fsm-graph"', _build_html())
+        self.assertIn('id="fsm-structural-status"', _build_html())
+        self.assertIn('id="fsm-spoken-status"', _build_html())
+        self.assertIn("Canonical graph · live position", _build_html())
         self.assertIn('id="fsm-timeline"', _build_html())
         self.assertIn('id="call-assessment"', _build_html())
         self.assertIn('id="assessment-verdict"', _build_html())
@@ -229,6 +269,9 @@ class TranscriptWebServerTests(unittest.TestCase):
         self.assertIn('let lastAssessmentFingerprint = ""', _build_html())
         self.assertIn("fingerprint === lastAssessmentFingerprint", _build_html())
         self.assertIn("fsmFingerprint === lastFsmFingerprint", _build_html())
+        self.assertIn("renderFSMGraph(graph, state, trail, fsmAdherence, spokenCompliance)", _build_html())
+        self.assertIn("runtimeGraphPath(activeFrom, activeTo)", _build_html())
+        self.assertIn("Speech ${verdictSymbol", _build_html())
         self.assertNotIn("fsm-update", _build_html())
         self.assertNotIn("transition-enter", _build_html())
         self.assertNotIn(">Identity<", _build_html())

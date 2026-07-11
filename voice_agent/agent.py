@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import asyncio
+from contextlib import suppress
 
-from livekit.agents import Agent, ChatContext, ChatMessage
+from livekit.agents import Agent, ChatContext, ChatMessage, tokenize, tts
 from livekit.agents.llm import StopResponse
 
 from .case_context import load_case_context
+from .barge_in import BargeTurnDecision
 from .config import AgentConfig
 from .conversation_controller import (
     ConversationAlreadyEnded,
     ConversationController,
+    build_case_review_consent_offer,
     build_runtime_control_message,
 )
 from .diarized_stt import DiarizedTranscript, OpenAIDiarizedSTT
-from .intent_interpreter import OpenAIIntentInterpreter
+from .echo_guard import EchoInputGuard
+from .intent_interpreter import (
+    OpenAIIntentInterpreter,
+    explicit_resolution_selection,
+    is_explicit_termination,
+    is_payment_refusal,
+)
 from .fsm_trace import FSMTraceRecorder
 from .hangup import (
     TERMINAL_FAREWELL_INSTRUCTIONS,
@@ -53,6 +63,18 @@ def _build_realtime_turn_detection(config: AgentConfig) -> dict[str, object]:
     }
 
 
+def build_silero_vad_options(config: AgentConfig) -> dict[str, float]:
+    """Map the noise-robust runtime profile to Silero's public API."""
+
+    return {
+        "activation_threshold": config.silero_vad_activation_threshold,
+        "deactivation_threshold": config.silero_vad_deactivation_threshold,
+        "min_speech_duration": config.silero_vad_min_speech_seconds,
+        "min_silence_duration": config.silero_vad_min_silence_seconds,
+        "prefix_padding_duration": config.silero_vad_prefix_padding_seconds,
+    }
+
+
 class AssistantAgent(Agent):
     """Notebook-equivalent voice assistant."""
 
@@ -63,6 +85,8 @@ class AssistantAgent(Agent):
         on_user_diarized: Callable[[DiarizedTranscript], None] | None = None,
         conversation_controller: ConversationController | None = None,
         fsm_trace_recorder: FSMTraceRecorder | None = None,
+        echo_input_guard: EchoInputGuard | None = None,
+        consume_barge_turn_decision: Callable[[str], BargeTurnDecision | None] | None = None,
         delete_room_on_hangup: bool = True,
     ) -> None:
         openai, silero = _load_plugins()
@@ -100,7 +124,7 @@ class AssistantAgent(Agent):
             instructions=config.openai_tts_instructions,
             api_key=config.openai_api_key,
         )
-        vad = silero.VAD.load()
+        vad = silero.VAD.load(**build_silero_vad_options(config))
 
         if conversation_controller is None and config.fsm_enabled:
             case = load_case_context(config.case_context_file)
@@ -115,6 +139,8 @@ class AssistantAgent(Agent):
             )
         self._conversation_controller = conversation_controller
         self._fsm_trace_recorder = fsm_trace_recorder
+        self._echo_input_guard = echo_input_guard
+        self._consume_barge_turn_decision = consume_barge_turn_decision
         self._auto_opening_enabled = (
             config.fsm_enabled and config.fsm_auto_opening_enabled
         )
@@ -146,6 +172,53 @@ class AssistantAgent(Agent):
             tts=tts,
             vad=vad,
         )
+
+    def observe_agent_state(
+        self,
+        *,
+        old_state: str,
+        new_state: str,
+        created_at: float,
+    ) -> None:
+        if self._echo_input_guard is not None:
+            self._echo_input_guard.on_agent_state_changed(
+                old_state=old_state,
+                new_state=new_state,
+                created_at=created_at,
+            )
+
+    async def tts_node(self, text, model_settings):
+        """Pace non-streaming TTS sentences to avoid audible multi-request gaps."""
+
+        activity = self._get_activity_or_raise()
+        if activity.tts is None:
+            raise RuntimeError("tts_node called without a configured TTS provider")
+        wrapped_tts = activity.tts
+        if not wrapped_tts.capabilities.streaming:
+            wrapped_tts = tts.StreamAdapter(
+                tts=wrapped_tts,
+                sentence_tokenizer=tokenize.blingfire.SentenceTokenizer(retain_format=True),
+                text_pacing=tts.SentenceStreamPacer(
+                    min_remaining_audio=0.8,
+                    max_text_length=240,
+                ),
+            )
+        conn_options = activity.session.conn_options.tts_conn_options
+        async with wrapped_tts.stream(conn_options=conn_options) as stream:
+            async def forward_input() -> None:
+                async for chunk in text:
+                    stream.push_text(chunk)
+                stream.end_input()
+
+            forward_task = asyncio.create_task(forward_input())
+            try:
+                async for event in stream:
+                    yield event.frame
+            finally:
+                if not forward_task.done():
+                    forward_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await forward_task
 
     async def on_enter(self) -> None:
         """Schedule one interruptible, disclosure-safe outbound opening."""
@@ -189,6 +262,30 @@ class AssistantAgent(Agent):
         transcript = (new_message.text_content or "").strip()
         if not transcript:
             raise StopResponse()
+        if self._consume_barge_turn_decision is not None:
+            decision = self._consume_barge_turn_decision(transcript)
+            if decision is not None and not decision.accepted:
+                if self._fsm_trace_recorder is not None:
+                    self._fsm_trace_recorder.record_suppressed_user_turn(
+                        user_transcript=transcript,
+                        reason=decision.reason,
+                    )
+                raise StopResponse()
+        state_before_turn = self._conversation_controller.state
+        preserve_input = (
+            is_explicit_termination(transcript)
+            or is_payment_refusal(transcript, state_before_turn)
+            or explicit_resolution_selection(transcript, state_before_turn) is not None
+        )
+        if self._echo_input_guard is not None and not preserve_input:
+            decision = self._echo_input_guard.evaluate(transcript)
+            if decision.suppress:
+                if self._fsm_trace_recorder is not None and decision.reason is not None:
+                    self._fsm_trace_recorder.record_suppressed_user_turn(
+                        user_transcript=transcript,
+                        reason=decision.reason,
+                    )
+                raise StopResponse()
         try:
             state = await self._conversation_controller.process_user_turn(transcript)
         except ConversationAlreadyEnded as exc:
@@ -213,6 +310,14 @@ class AssistantAgent(Agent):
                 speech_handle.add_done_callback(
                     self._fsm_trace_recorder.record_terminal_speech_handle
                 )
+            raise StopResponse()
+        review_consent_offer = build_case_review_consent_offer(state)
+        if review_consent_offer is not None:
+            self.session.say(
+                review_consent_offer,
+                allow_interruptions=True,
+                add_to_chat_ctx=True,
+            )
             raise StopResponse()
         turn_ctx.add_message(
             role="system",

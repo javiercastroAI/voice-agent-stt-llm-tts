@@ -33,8 +33,9 @@ Use disputes_case when the caller rejects or contests the case without a specifi
 Use objection_provided when a concrete dispute reason is given, and summarize that reason
 as a short snake_case objection_type. Use resolution_selected only when the caller clearly
 chooses an allowed resolution label. Do not invent a resolution label.
-In the confirmation phase, use outcome_confirmed when the caller accepts the agreed
-outcome or naturally signs off after agreeing, including concise thanks or farewells.
+In the confirmation phase, use outcome_confirmed only when the caller explicitly
+accepts or confirms the agreed outcome. Never infer it from a fragment, a vague
+acknowledgement, thanks, a farewell, or a sign-off.
 In objection handling, a clear agreement to review the case is resolution_selected with
 resolution_type case_review when that resolution is allowed. An explicit statement that
 the caller will not pay is refusal, even when it also expresses a dispute.
@@ -53,17 +54,11 @@ _TERMINATION_PATTERNS = (
 
 _CONFIRMATION_ACCEPTANCE_PATTERNS = (
     r"^(?:si\s+)?(?:todo\s+)?correcto$",
-    r"^(?:si\s+)?(?:de\s+acuerdo|confirmado|confirmo|esta\s+bien|vale|perfecto)$",
-    r"^(?:muchas\s+)?gracias$",
-    r"^(?:que\s+tenga\s+un\s+)?buen\s+dia$",
-    r"^(?:hasta\s+luego|nos\s+vemos)$",
-    r"^(?:si\s+)?claro(?:\s+ya\s+se\s+lo\s+he\s+dicho)?$",
+    r"^(?:si\s+)?(?:de\s+acuerdo|confirmado|confirmo|acepto\s+el\s+acuerdo)$",
+    r"^si\s+(?:confirmo|acepto|de\s+acuerdo)$",
     r"^(?:es\s+)?correcto(?:\s+correctisimo(?:\s+diria\s+yo)?)?$",
     r"^(?:yes\s+)?(?:that(?:\s+is|s)\s+)?correct$",
-    r"^(?:yes\s+)?(?:agreed|confirmed|okay|ok|perfect)$",
-    r"^(?:thank\s+you|thanks)(?:\s+very\s+much)?$",
-    r"^(?:have\s+a\s+)?good\s+day$",
-    r"^(?:see\s+you|bye)$",
+    r"^(?:yes\s+)?(?:agreed|confirmed|i\s+confirm|i\s+accept)$",
 )
 
 _PAYMENT_REFUSAL_PATTERNS = (
@@ -159,6 +154,12 @@ class OpenAIIntentInterpreter:
                 TurnIntent.REFUSAL,
                 evidence={"interpreter": "deterministic_payment_refusal_guard"},
             )
+        if resolution_type := explicit_resolution_selection(cleaned, state):
+            return make_turn_event(
+                TurnIntent.RESOLUTION_SELECTED,
+                resolution_type=resolution_type,
+                evidence={"interpreter": "deterministic_resolution_selection_guard"},
+            )
         if is_contextual_case_review_acceptance(cleaned, state):
             return make_turn_event(
                 TurnIntent.OUTCOME_CONFIRMED,
@@ -204,12 +205,24 @@ class OpenAIIntentInterpreter:
                 parsed.verified_fields,
                 state["policy"]["verification_fields"],
             )
+            intent = parsed.intent
+            if intent == TurnIntent.OUTCOME_CONFIRMED and not is_contextual_outcome_confirmation(
+                cleaned, state
+            ):
+                intent = TurnIntent.UNKNOWN
             return make_turn_event(
-                parsed.intent,
+                intent,
                 objection_type=_clean_label(parsed.objection_type),
                 resolution_type=_clean_label(parsed.resolution_type),
                 verification_fields=verified_fields,
-                evidence={"interpreter": "openai_structured_output"},
+                evidence={
+                    "interpreter": (
+                        "terminal_confirmation_rejected"
+                        if parsed.intent == TurnIntent.OUTCOME_CONFIRMED
+                        and intent == TurnIntent.UNKNOWN
+                        else "openai_structured_output"
+                    )
+                },
             )
         except Exception as exc:
             logger.warning("Intent interpretation failed closed: %s", exc.__class__.__name__)
@@ -237,6 +250,29 @@ def is_contextual_outcome_confirmation(
         re.fullmatch(pattern, normalized)
         for pattern in _CONFIRMATION_ACCEPTANCE_PATTERNS
     )
+
+
+def explicit_resolution_selection(
+    transcript: str,
+    state: ConversationState,
+) -> str | None:
+    """Resolve unambiguous spoken choices without letting the classifier drift."""
+
+    if state["phase"] != CallPhase.RESOLUTION.value:
+        return None
+    normalized = _normalize_transcript(transcript)
+    available = set(state["case"]["available_resolution_types"])
+    if (
+        "payment" in available
+        and re.fullmatch(r"(?:pago\s+inmediato|pagar\s+ahora|quiero\s+pagar)", normalized)
+    ):
+        return "payment"
+    if (
+        "case_review" in available
+        and re.fullmatch(r"(?:solicito\s+una\s+revision|revision\s+del\s+caso)", normalized)
+    ):
+        return "case_review"
+    return None
 
 
 def is_bare_identity_confirmation(

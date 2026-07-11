@@ -30,6 +30,7 @@ _IMPROVEMENTS = {
     "repetitive_response_loop": "Do not repeat the same confirmation question after the caller has answered it.",
     "premature_resolution_claim": "Do not claim a review request was recorded before the caller selects it.",
     "case_review_confirmation_mismatch": "Keep case-review confirmation focused on the review request and omit payment options.",
+    "response_directive_mismatch": "Keep the spoken response within the current FSM directive before sending it to TTS.",
 }
 
 _QUALITY_FINDING_CODES = frozenset(
@@ -41,6 +42,7 @@ _QUALITY_FINDING_CODES = frozenset(
         "repetitive_response_loop",
         "premature_resolution_claim",
         "case_review_confirmation_mismatch",
+        "response_directive_mismatch",
     }
 )
 

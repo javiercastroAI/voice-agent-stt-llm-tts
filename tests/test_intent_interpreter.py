@@ -16,6 +16,7 @@ from voice_agent.intent_interpreter import (
     is_explicit_termination,
     is_contextual_case_review_acceptance,
     is_contextual_outcome_confirmation,
+    explicit_resolution_selection,
     is_payment_refusal,
 )
 
@@ -163,7 +164,7 @@ class OpenAIIntentInterpreterTests(unittest.IsolatedAsyncioTestCase):
         state["phase"] = "confirmation"
         responses = FakeResponses(error=RuntimeError("must not be called"))
 
-        for transcript in ("Todo correcto.", "Gracias", "Buen día", "Agreed"):
+        for transcript in ("Todo correcto.", "Confirmo", "Sí, de acuerdo", "Agreed"):
             event = await self.build_interpreter(responses).interpret(transcript, state)
             self.assertEqual(event["intent"], TurnIntent.OUTCOME_CONFIRMED.value)
             self.assertEqual(
@@ -172,10 +173,33 @@ class OpenAIIntentInterpreterTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(responses.calls, [])
 
+    async def test_ambiguous_terminal_confirmation_fails_closed(self) -> None:
+        state = verification_state()
+        state["phase"] = "confirmation"
+        responses = FakeResponses(InterpretedTurn(intent=TurnIntent.OUTCOME_CONFIRMED))
+
+        event = await self.build_interpreter(responses).interpret("Básicamente", state)
+
+        self.assertEqual(event["intent"], TurnIntent.UNKNOWN.value)
+        self.assertEqual(event["evidence"]["interpreter"], "terminal_confirmation_rejected")
+
     def test_confirmation_signoff_guard_is_phase_scoped(self) -> None:
         self.assertFalse(
             is_contextual_outcome_confirmation("Todo correcto", verification_state())
         )
+
+    async def test_explicit_payment_selection_bypasses_model(self) -> None:
+        state = verification_state()
+        state["phase"] = "resolution"
+        responses = FakeResponses(error=RuntimeError("must not be called"))
+
+        event = await self.build_interpreter(responses).interpret("Pago inmediato.", state)
+
+        self.assertEqual(event["intent"], TurnIntent.RESOLUTION_SELECTED.value)
+        self.assertEqual(event["resolution_type"], "payment")
+        self.assertEqual(event["evidence"]["interpreter"], "deterministic_resolution_selection_guard")
+        self.assertEqual(responses.calls, [])
+        self.assertEqual(explicit_resolution_selection("Pago inmediato", state), "payment")
 
     async def test_payment_refusal_variants_bypass_model(self) -> None:
         responses = FakeResponses(error=RuntimeError("must not be called"))

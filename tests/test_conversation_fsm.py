@@ -13,6 +13,8 @@ from voice_agent.conversation_fsm import (
     TRANSITION_REGISTRY,
     TurnIntent,
     create_initial_state,
+    dashboard_graph_spec,
+    evaluate_transition_structure,
     make_turn_event,
     render_business_graph,
     response_context,
@@ -357,6 +359,50 @@ class ConversationFSMTests(unittest.TestCase):
                 source = "ANY" if transition.source is None else transition.source.name
                 self.assertIn(f'{source} -->|"{transition.id}:', graph)
                 self.assertIn(f'| {transition.target.name}', graph)
+
+    def test_dashboard_graph_is_derived_from_declared_business_transitions(self) -> None:
+        graph = dashboard_graph_spec()
+
+        self.assertEqual(
+            [node["id"] for node in graph["nodes"]],
+            [phase.value for phase in CallPhase],
+        )
+        self.assertTrue(
+            any(
+                "identity_complete" in edge["transition_ids"]
+                and edge["source"] == CallPhase.IDENTITY_VERIFICATION.value
+                and edge["target"] == CallPhase.CASE_DISCLOSURE.value
+                for edge in graph["edges"]
+            )
+        )
+        self.assertTrue(
+            any(
+                "explicit_termination" in edge["transition_ids"]
+                and edge["source"] == "any_active_phase"
+                and edge["target"] == CallPhase.ENDED.value
+                for edge in graph["edges"]
+            )
+        )
+
+    def test_declared_self_transition_is_structurally_adherent(self) -> None:
+        result = evaluate_transition_structure(
+            transition_id="disclosure_fallback",
+            from_phase=CallPhase.CASE_DISCLOSURE.value,
+            to_phase=CallPhase.CASE_DISCLOSURE.value,
+            should_end=False,
+        )
+
+        self.assertEqual(result["status"], "pass")
+
+    def test_unknown_transition_is_structural_failure(self) -> None:
+        result = evaluate_transition_structure(
+            transition_id="invented_transition",
+            from_phase=CallPhase.CASE_DISCLOSURE.value,
+            to_phase=CallPhase.RESOLUTION.value,
+            should_end=False,
+        )
+
+        self.assertEqual(result["status"], "fail")
 
     def test_runtime_contains_no_demo_case_values(self) -> None:
         source = Path(__file__).resolve().parent.parent / "voice_agent/conversation_fsm.py"

@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import time
+from uuid import uuid4
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
 
@@ -16,6 +17,7 @@ from .agent import AssistantAgent
 from .barge_in import BargeInController, BargeInPolicy
 from .case_context import load_case_context
 from .config import AgentConfig, ConfigError, SUPPORTED_COMMANDS
+from .echo_guard import EchoInputGuard
 from .metrics import VoiceTelemetryRecorder, log_metrics_event, sync_metric_panel
 from .fsm_trace import FSMTraceRecorder
 from .transcript import ConversationTraceLogger
@@ -180,19 +182,28 @@ async def entrypoint(ctx: JobContext) -> None:
         else None
     )
     barge_in_policy = BargeInPolicy.from_config(config)
-    session = AgentSession(**barge_in_policy.session_options())
+    call_id = f"call-{uuid4().hex}"
+    session = AgentSession(
+        **barge_in_policy.session_options(),
+        aec_warmup_duration=config.aec_warmup_seconds,
+    )
     voice_telemetry = VoiceTelemetryRecorder(
         jsonl_path=config.voice_metrics_telemetry_path,
         sqlite_path=config.voice_metrics_sqlite_path,
+        call_id=call_id,
     )
     fsm_event_writer = web_server.store.add_fsm_event if web_server else None
     fsm_trace_recorder = (
         FSMTraceRecorder(
             jsonl_path=config.fsm_trace_path,
             event_writer=fsm_event_writer,
+            call_id=call_id,
         )
         if config.fsm_trace_path or fsm_event_writer is not None
         else None
+    )
+    echo_input_guard = EchoInputGuard(
+        post_speech_seconds=config.echo_guard_post_speech_seconds,
     )
     trace_logger = ConversationTraceLogger(
         store=web_server.store if web_server else None,
@@ -201,6 +212,7 @@ async def entrypoint(ctx: JobContext) -> None:
             if fsm_trace_recorder is not None
             else None
         ),
+        on_agent_text_delta=echo_input_guard.on_agent_text_delta,
     )
 
     def request_immediate_agent_mute(_created_at: float) -> tuple[bool, str | None]:
@@ -218,10 +230,39 @@ async def entrypoint(ctx: JobContext) -> None:
         interruption.add_done_callback(drain_interruption_result)
         return True, "session.interrupt(force=True)"
 
+    def _output_audio_control(action: str) -> tuple[bool, str | None]:
+        try:
+            audio = session.output.audio
+            if audio is None or not audio.can_pause:
+                return False, "Output audio does not support pause/resume"
+            getattr(audio, action)()
+        except Exception as exc:
+            return False, f"{exc.__class__.__name__}: {exc}"
+        return True, f"session.output.audio.{action}()"
+
+    def request_soft_pause(_created_at: float) -> tuple[bool, str | None]:
+        return _output_audio_control("pause")
+
+    def request_soft_resume(_created_at: float) -> tuple[bool, str | None]:
+        return _output_audio_control("resume")
+
+    def is_agent_output_active() -> bool:
+        try:
+            speech = session.current_speech
+            return speech is not None and not speech.done()
+        except Exception:
+            return False
+
     barge_in_controller = BargeInController(
         barge_in_policy,
         store=web_server.store if web_server else None,
         on_immediate_mute=request_immediate_agent_mute,
+        on_soft_pause=request_soft_pause,
+        on_soft_resume=request_soft_resume,
+        on_confirmed_interrupt=request_immediate_agent_mute,
+        is_agent_output_active=is_agent_output_active,
+        is_playback_echo=echo_input_guard.is_likely_playback_echo,
+        call_id=call_id,
     )
 
     def handle_metrics_collected(event) -> None:
@@ -236,6 +277,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
     def handle_agent_state_changed(event) -> None:
         trace_logger.on_agent_state_changed(event)
+        echo_input_guard.on_agent_state_changed(
+            old_state=event.old_state,
+            new_state=event.new_state,
+            created_at=event.created_at,
+        )
         barge_in_controller.on_agent_state_changed(event)
         if agent is not None and agent.consume_terminal_shutdown(
             old_state=event.old_state,
@@ -287,6 +333,8 @@ async def entrypoint(ctx: JobContext) -> None:
         config,
         on_user_diarized=trace_logger.on_user_diarized,
         fsm_trace_recorder=fsm_trace_recorder,
+        echo_input_guard=echo_input_guard,
+        consume_barge_turn_decision=barge_in_controller.consume_user_turn_decision,
         delete_room_on_hangup=not ctx.is_fake_job(),
     )
 
