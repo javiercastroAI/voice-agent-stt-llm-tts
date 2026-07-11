@@ -553,7 +553,7 @@ def _build_html() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <title>Voice Agent Transcript</title>
+  <title>Externally Orchestrated Voice Agent · Live Console</title>
   <style>
     :root {
       --bg: #f4efe5;
@@ -2031,154 +2031,955 @@ def _build_html() -> str:
       .shell { animation: none; }
       *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
     }
+
+    /* 0063 · Conversation control room. Final visual layer. */
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f0d;
+      --panel: #101512;
+      --panel-raised: #151b17;
+      --line: rgba(239, 235, 222, 0.11);
+      --line-strong: rgba(239, 235, 222, 0.19);
+      --ink: #f1eee5;
+      --muted: #929b94;
+      --accent: #57e8cb;
+      --accent-soft: rgba(87, 232, 203, 0.10);
+      --warning: #e4b765;
+      --danger: #ff7777;
+      --user: #b7c9ff;
+      --agent: #57e8cb;
+      --radius: 10px;
+      --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+      --sans: Inter, "SF Pro Display", "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    html {
+      background: var(--bg);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-width: 0;
+      color: var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(rgba(239, 235, 222, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(239, 235, 222, 0.018) 1px, transparent 1px);
+      background-size: 40px 40px;
+      font-family: var(--sans);
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: 10px;
+      left: 10px;
+      padding: 10px 14px;
+      color: #07100d;
+      background: var(--accent);
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .command-header {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto auto;
+      align-items: center;
+      min-height: 76px;
+      padding: 12px clamp(18px, 2vw, 34px);
+      border-bottom: 1px solid var(--line-strong);
+      background: rgba(11, 15, 13, 0.96);
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      min-width: 0;
+    }
+
+    .brand-signal {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border: 1px solid rgba(87, 232, 203, 0.44);
+      border-radius: 50%;
+    }
+
+    .brand-signal::before,
+    .brand-signal::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      background: var(--accent);
+      transform: translateY(-50%);
+    }
+
+    .brand-signal::before { left: 6px; width: 14px; height: 1px; }
+    .brand-signal::after { left: 12px; width: 3px; height: 3px; border-radius: 50%; }
+
+    .product-kicker,
+    .panel-kicker,
+    .evidence-kicker {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 0.16em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .product-name {
+      margin: 0;
+      overflow: hidden;
+      color: var(--ink);
+      font-size: clamp(14px, 1.45vw, 19px);
+      font-weight: 610;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .connection-block {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-right: 24px;
+      padding-right: 24px;
+      border-right: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .connection-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .connection-state::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 4px rgba(87, 232, 203, 0.08);
+    }
+
+    .connection-state.is-offline { color: var(--danger); }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(100px, auto));
+      gap: 0;
+      margin: 0;
+      border: 0;
+    }
+
+    .status-card {
+      min-width: 0;
+      padding: 2px 18px;
+      border: 0;
+      border-left: 1px solid var(--line);
+      background: transparent;
+    }
+
+    .status-card:last-child { border-right: 0; }
+    .status-label { margin-bottom: 6px; font-size: 8px; }
+
+    .status-value {
+      gap: 7px;
+      padding: 0;
+      color: #c4cbc5;
+      background: transparent !important;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .status-value::before {
+      width: 5px;
+      height: 5px;
+      background: #68716b;
+    }
+
+    .status-value.is-speaking { color: var(--accent); }
+    .status-value.is-thinking { color: var(--warning); }
+    .status-value.is-speaking::before { animation: presence-pulse 1.2s ease-out infinite; }
+    .status-value.is-thinking::before { animation: thinking-pulse 1.4s ease-in-out infinite; }
+
+    .shell {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      animation: console-enter 420ms cubic-bezier(.2,.8,.2,1) both;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(310px, 0.72fr) minmax(620px, 1.28fr);
+      gap: 1px;
+      height: calc(100svh - 76px);
+      min-height: calc(100svh - 76px);
+      padding: clamp(14px, 1.5vw, 24px);
+      background: var(--line);
+      background-clip: content-box;
+    }
+
+    .transcript-panel,
+    .fsm-monitor {
+      min-width: 0;
+      height: 100%;
+      min-height: 0;
+      max-height: none;
+    }
+
+    .transcript-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      padding: 24px 22px 18px;
+      background: var(--panel);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 4px 19px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(22px, 2.6vw, 34px);
+      font-weight: 570;
+      letter-spacing: -0.045em;
+      line-height: 1;
+    }
+
+    .panel-mode {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .panel-mode::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .board {
+      min-height: 0;
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+    }
+
+    .board::before { display: none; }
+
+    .feed {
+      height: 100%;
+      max-height: none;
+      gap: 0;
+      overflow-y: auto;
+      padding: 7px 8px 16px 0;
+    }
+
+    .message {
+      position: relative;
+      padding: 20px 12px 22px 28px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      color: var(--ink);
+      background: transparent !important;
+      transition: background-color 180ms ease, border-color 180ms ease;
+    }
+
+    .message::before {
+      left: 5px;
+      top: 25px;
+      width: 7px;
+      height: 1px;
+      border-radius: 0;
+      background: var(--agent);
+    }
+
+    .message.user::before { background: var(--user); }
+    .message:hover { background: rgba(239, 235, 222, 0.025) !important; }
+    .message.live { border-style: solid; animation: none; }
+
+    .message.live::after {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 1em;
+      margin-left: 5px;
+      vertical-align: -0.13em;
+      background: var(--accent);
+      animation: live-cursor 900ms steps(1, end) infinite;
+    }
+
+    .meta { margin-bottom: 9px; }
+    .speaker { color: #aab2ac; font-family: var(--mono); font-size: 9px; font-weight: 700; }
+    .badge { padding: 0; border: 0; color: #666f69; background: none; font-family: var(--mono); font-size: 8px; }
+    .body { max-width: 64ch; color: #e6e3da; font-size: 15px; line-height: 1.62; }
+    .message.user .body { color: #e0e5ef; }
+
+    .segments {
+      gap: 7px;
+      margin-top: 13px;
+      padding-top: 12px;
+      border-color: var(--line);
+    }
+
+    .segment { border-left: 1px solid rgba(183, 201, 255, 0.34); color: #c4cbc6; font-size: 12px; }
+    .segment-meta { color: #77817a; font-family: var(--mono); font-size: 9px; }
+
+    .fsm-monitor {
+      --fsm-accent: var(--accent);
+      display: grid;
+      grid-template-rows: auto minmax(250px, 1fr) auto minmax(120px, 0.42fr);
+      gap: 0;
+      overflow: hidden;
+      margin: 0;
+      padding: 24px 28px 18px;
+      border: 0;
+      border-radius: 0;
+      color: var(--ink);
+      background: var(--panel-raised);
+      box-shadow: none;
+    }
+
+    .fsm-monitor::before { display: none; }
+    .fsm-monitor.has-guard { --fsm-accent: var(--warning); }
+    .fsm-monitor.is-terminal { --fsm-accent: var(--accent); }
+
+    .fsm-head {
+      display: block;
+      padding-bottom: 18px;
+      border-color: var(--line);
+    }
+
+    .fsm-phase-line {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .fsm-phase {
+      color: var(--fsm-accent);
+      font-size: clamp(29px, 3.5vw, 48px);
+      font-weight: 560;
+      letter-spacing: -0.05em;
+      line-height: 0.95;
+    }
+
+    .fsm-outcome {
+      max-width: 38ch;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      line-height: 1.5;
+      text-align: right;
+    }
+
+    .causal-chain {
+      display: grid;
+      grid-template-columns: 0.9fr 0.75fr 1fr 1.65fr;
+      border-block: 1px solid var(--line);
+    }
+
+    .causal-link {
+      min-width: 0;
+      padding: 11px 13px 12px;
+      border-left: 1px solid var(--line);
+    }
+
+    .causal-link:first-child { padding-left: 0; border-left: 0; }
+    .causal-link:last-child { padding-right: 0; }
+
+    .fsm-fact-label {
+      margin-bottom: 5px;
+      color: #6f7972;
+      font-family: var(--mono);
+      font-size: 8px;
+    }
+
+    .fsm-fact-value {
+      overflow: hidden;
+      color: #d9ddd7;
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+    }
+
+    .fsm-monitor.has-guard #fsm-guard { color: var(--warning); }
+    .fsm-graph-panel {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
+      margin: 0;
+      padding: 12px 0 8px;
+      border-color: var(--line);
+    }
+
+    .fsm-graph-head { margin-bottom: 0; }
+    .fsm-kicker { color: #818a83; font-family: var(--mono); font-size: 9px; }
+    .fsm-graph-status { color: #6f7872; font-size: 9px; }
+    .fsm-verdicts { gap: 5px; }
+
+    .fsm-verdict {
+      padding: 4px 7px;
+      border-color: var(--line-strong);
+      border-radius: 3px;
+      color: #8e9790;
+      font-family: var(--mono);
+      font-size: 8px;
+    }
+
+    .fsm-verdict.is-pass { border-color: rgba(87, 232, 203, 0.38); color: var(--accent); }
+    .fsm-verdict.is-fail { border-color: rgba(255, 119, 119, 0.44); color: var(--danger); }
+
+    .fsm-graph { width: 100%; max-height: 100%; }
+    .fsm-graph-edge { stroke: rgba(218, 225, 218, 0.20); stroke-width: 1.25; }
+    .fsm-graph-edge.is-global { stroke: rgba(228, 183, 101, 0.38); }
+    .fsm-graph-edge.is-active,
+    .fsm-graph-edge.is-runtime {
+      stroke: var(--fsm-accent);
+      stroke-width: 2.6;
+      stroke-dasharray: 9 7;
+      animation: signal-flow 880ms linear infinite;
+    }
+
+    .fsm-graph-edge.is-structural-fail { stroke: var(--danger); }
+    .fsm-graph-node rect { fill: #121814; stroke: rgba(218, 225, 218, 0.24); rx: 4px; }
+    .fsm-graph-node text { fill: #9ca69f; font-size: 10px; }
+    .fsm-graph-node.is-traversed rect { fill: rgba(87, 232, 203, 0.055); stroke: rgba(87, 232, 203, 0.42); }
+    .fsm-graph-node.is-current rect { fill: var(--fsm-accent); stroke: var(--fsm-accent); }
+    .fsm-graph-node.is-current text { fill: #07100d; }
+    .fsm-graph-node.is-terminal rect { stroke: rgba(87, 232, 203, 0.55); }
+    .fsm-graph-node.is-global rect { fill: rgba(228, 183, 101, 0.05); stroke: rgba(228, 183, 101, 0.46); }
+    .fsm-graph-node.is-global text { fill: var(--warning); }
+    .fsm-graph-speech rect { fill: #111713; stroke: var(--line-strong); rx: 3px; }
+    .fsm-graph-speech text { fill: #aeb6b0; font-size: 9px; }
+    .fsm-graph-speech.is-pass rect { stroke: rgba(87, 232, 203, 0.55); }
+    .fsm-graph-speech.is-pass text { fill: var(--accent); }
+    .fsm-graph-speech.is-fail rect { stroke: rgba(255, 119, 119, 0.66); }
+    .fsm-graph-speech.is-fail text { fill: var(--danger); }
+    .fsm-mobile-map { display: none; }
+
+    .fsm-trail-head { margin: 14px 0 5px; }
+    .fsm-count { color: #68716b; font-family: var(--mono); font-size: 9px; }
+    .fsm-timeline { min-height: 0; max-height: none; overflow-y: auto; }
+
+    .fsm-transition {
+      grid-template-columns: minmax(155px, .8fr) minmax(120px, .65fr) minmax(210px, 1.45fr) auto;
+      gap: 14px;
+      padding: 9px 4px;
+      border-color: var(--line);
+    }
+
+    .fsm-transition:last-child { background: rgba(87, 232, 203, 0.035); }
+    .fsm-route { color: #aab2ac; font-size: 9px; }
+    .fsm-route-from { color: #707a73; }
+    .fsm-route-arrow { color: var(--fsm-accent); }
+    .fsm-route-to { color: #cbd1cc; }
+    .fsm-transition-primary { color: #cbd1cc; font-family: var(--mono); font-size: 9px; }
+    .fsm-transition-secondary { color: #68716b; font-family: var(--mono); font-size: 8px; }
+    .fsm-spoken-badge { color: #727c75; font-size: 8px; }
+    .fsm-spoken-badge.is-pass { color: var(--accent); }
+    .fsm-spoken-badge.is-fail { color: var(--danger); }
+    .fsm-evidence { width: 5px; height: 5px; box-shadow: none; }
+    .fsm-evidence.is-recorded { background: var(--accent); box-shadow: none; }
+    .fsm-empty { padding: 16px 0; color: #68716b; font-family: var(--mono); font-size: 10px; }
+
+    .secondary-workspace {
+      padding: clamp(26px, 4vw, 56px) clamp(18px, 3vw, 48px) 70px;
+      border-top: 1px solid var(--line-strong);
+      background: #0d110f;
+    }
+
+    .secondary-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .secondary-title { margin: 0; font-size: clamp(25px, 3vw, 38px); font-weight: 560; letter-spacing: -0.045em; }
+    .secondary-copy { max-width: 48ch; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; text-align: right; }
+
+    .call-assessment {
+      grid-template-columns: minmax(230px, .75fr) minmax(0, 1.25fr);
+      gap: 34px;
+      margin: 0 0 30px;
+      padding: 21px 22px;
+      border: 1px solid var(--line);
+      border-left: 2px solid var(--assessment-accent);
+      border-radius: var(--radius);
+      color: var(--ink);
+      background: var(--panel);
+      box-shadow: none;
+      transition: padding 260ms ease, border-color 260ms ease, background-color 260ms ease;
+    }
+
+    .call-assessment:not(.is-in_progress) { animation: terminal-settle 440ms cubic-bezier(.2,.8,.2,1) both; }
+    .call-assessment.is-pass {
+      --assessment-accent: var(--accent);
+      --assessment-soft: rgba(87, 232, 203, 0.06);
+    }
+    .call-assessment.is-warn,
+    .call-assessment.is-finalizing {
+      --assessment-accent: var(--warning);
+      --assessment-soft: rgba(228, 183, 101, 0.06);
+    }
+    .call-assessment.is-fail {
+      --assessment-accent: var(--danger);
+      --assessment-soft: rgba(255, 119, 119, 0.06);
+    }
+    .assessment-kicker { color: var(--muted); font-size: 9px; }
+    .assessment-verdict { color: var(--assessment-accent); font-size: clamp(24px, 3vw, 36px); font-weight: 580; }
+    .assessment-summary { color: #8f9891; font-size: 12px; }
+    .assessment-evidence { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .assessment-check { padding: 3px 13px; border-color: var(--line); background: transparent; }
+    .assessment-check-label { color: #717a73; font-size: 8px; }
+    .assessment-check-value { color: #cbd1cc; font-family: var(--mono); font-size: 9px; }
+    .assessment-dot { width: 5px; height: 5px; }
+    .assessment-dot.is-pass { background: var(--accent); }
+    .assessment-dot.is-warn,
+    .assessment-dot.is-pending { background: var(--warning); }
+    .assessment-dot.is-fail { background: var(--danger); }
+
+    .metrics-section { gap: 12px; margin-bottom: 30px; }
+    .metrics-section > .detail-title { color: var(--ink); font-size: 12px; }
+    .metrics-section > .detail-title::after { color: #616a64; border-color: var(--line); }
+    .metrics-grid { gap: 1px; padding: 1px; background: var(--line); }
+    .metric-card { background: var(--panel); }
+    .metric-title { color: #c8cec9; }
+    .metric-title::before { background: var(--accent); }
+    .metric-card--pipeline .metric-row { border-color: var(--line); }
+    .metric-card--pipeline .metric-label,
+    .metric-label { color: #778079; }
+    .metric-card--pipeline .metric-value,
+    .metric-value { color: #d8dcd7; font-family: var(--mono); }
+    .metric-card--barge-in { background: #111612; }
+    .metric-card--barge-in .metric-title,
+    .metric-card--barge-in .metric-list { border-color: var(--line); column-rule-color: var(--line); }
+    .metric-row:hover { background: rgba(87, 232, 203, 0.035); }
+
+    .overview-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(240px, .6fr);
+      gap: 0;
+      margin: 0;
+      border-color: var(--line);
+    }
+
+    .overview-grid .detail-card,
+    .overview-grid .detail-card + .detail-card {
+      padding: 24px 28px;
+      border: 0;
+      border-left: 1px solid var(--line);
+      border-radius: 0;
+      color: var(--ink);
+      background: transparent;
+    }
+
+    .overview-grid .detail-card:first-child { padding-left: 0; border-left: 0; }
+    .detail-title { color: #9fa7a1; font-family: var(--mono); font-size: 9px; }
+    .model-row { border-color: var(--line); background: transparent; }
+    .model-name { color: #707a73; font-size: 9px; }
+    .model-value { color: #cbd1cc; font-family: var(--mono); font-size: 10px; }
+    .tech-pill,
+    .hero-pill {
+      padding: 5px 7px;
+      border-color: var(--line);
+      border-radius: 3px;
+      color: #939c95;
+      background: transparent;
+      font-size: 9px;
+    }
+
+    .research-meta .hero-pill:first-child {
+      flex-basis: 100%;
+      padding: 0 0 7px;
+      color: #d7dbd6;
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 560;
+      letter-spacing: -0.02em;
+    }
+
+    .empty {
+      border-color: var(--line);
+      border-radius: 5px;
+      color: #68716b;
+      background: rgba(239, 235, 222, 0.012);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .workspace.is-synchronized .causal-chain {
+      animation: causal-flash 640ms ease-out both;
+    }
+
+    .workspace.is-synchronized .message.user:not(.live):last-of-type {
+      background: rgba(183, 201, 255, 0.045) !important;
+      border-color: rgba(183, 201, 255, 0.25);
+    }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+    @keyframes signal-flow { to { stroke-dashoffset: -32; } }
+    @keyframes live-cursor { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+    @keyframes presence-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(87, 232, 203, .32); }
+      100% { box-shadow: 0 0 0 6px rgba(87, 232, 203, 0); }
+    }
+    @keyframes thinking-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+    @keyframes causal-flash {
+      0% { background: rgba(87, 232, 203, .09); }
+      100% { background: transparent; }
+    }
+    @keyframes terminal-settle {
+      from { opacity: .45; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1100px) {
+      .command-header { grid-template-columns: minmax(240px, 1fr) auto; }
+      .connection-block { margin-right: 0; padding-right: 0; border-right: 0; }
+      .status-grid { grid-column: 1 / -1; margin-top: 12px; border-top: 1px solid var(--line); }
+      .status-card { padding-top: 10px; }
+      .workspace { grid-template-columns: 1fr; height: auto; background: transparent; }
+      .fsm-monitor { order: 1; }
+      .transcript-panel { order: 2; }
+      .transcript-panel,
+      .fsm-monitor { height: auto; min-height: 640px; max-height: none; border: 1px solid var(--line); }
+      .transcript-panel { min-height: 560px; }
+      .overview-grid { grid-template-columns: 1fr 1fr; }
+      .research-meta { grid-column: 1 / -1; border-top: 1px solid var(--line) !important; }
+      .overview-grid .research-meta { padding-left: 0; }
+    }
+
+    @media (max-width: 700px) {
+      .command-header { position: relative; min-height: auto; padding: 14px; }
+      .brand-signal { width: 24px; height: 24px; }
+      .product-name { white-space: normal; }
+      .connection-block { align-self: start; gap: 8px; font-size: 8px; }
+      .refresh-label { display: none; }
+      .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .status-card { padding: 10px 8px 2px; }
+      .status-card:first-child { padding-left: 0; border-left: 0; }
+      .status-label { font-size: 7px; }
+      .status-value { font-size: 8px; }
+      .workspace { gap: 12px; height: auto; min-height: 0; padding: 10px; }
+      .transcript-panel,
+      .fsm-monitor { min-height: 0; }
+      .transcript-panel { height: 68svh; padding: 19px 15px 12px; }
+      .fsm-monitor {
+        display: block;
+        height: auto;
+        padding: 20px 15px;
+      }
+      .panel-head { padding-bottom: 15px; }
+      .panel-title { font-size: 25px; }
+      .panel-mode { font-size: 7px; }
+      .fsm-phase-line { display: block; }
+      .fsm-phase { margin-bottom: 10px; font-size: 34px; }
+      .fsm-outcome { text-align: left; }
+      .causal-chain { grid-template-columns: 1fr 1fr; }
+      .causal-link { padding: 10px 9px; }
+      .causal-link:nth-child(odd) { padding-left: 0; border-left: 0; }
+      .causal-link:nth-child(n+3) { border-top: 1px solid var(--line); }
+      .fsm-graph-panel { display: block; margin-top: 16px; padding: 14px 0; }
+      .fsm-graph-head { display: block; }
+      .fsm-verdicts { justify-content: flex-start; margin-top: 10px; }
+      .fsm-graph { display: none; }
+      .fsm-mobile-map {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        margin: 16px 0 0;
+        padding: 1px;
+        list-style: none;
+        background: var(--line);
+      }
+      .fsm-mobile-state {
+        position: relative;
+        min-width: 0;
+        padding: 10px 9px 10px 21px;
+        color: #8f9992;
+        background: #111612;
+        font-family: var(--mono);
+        font-size: 8px;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+      .fsm-mobile-state::before {
+        content: "";
+        position: absolute;
+        top: 13px;
+        left: 9px;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #59625c;
+      }
+      .fsm-mobile-state.is-traversed { color: #b9c1bb; }
+      .fsm-mobile-state.is-traversed::before { background: rgba(87, 232, 203, .55); }
+      .fsm-mobile-state.is-current { color: #07100d; background: var(--fsm-accent); }
+      .fsm-mobile-state.is-current::before { background: #07100d; }
+      .fsm-trail-head { margin-top: 16px; }
+      .fsm-timeline { max-height: 220px; }
+      .fsm-transition { grid-template-columns: 1fr auto; gap: 5px 10px; padding: 10px 2px; }
+      .fsm-transition-copy { grid-column: 1 / -1; }
+      .fsm-transition-status { grid-column: 2; grid-row: 1; }
+      .secondary-workspace { padding: 34px 14px 52px; }
+      .secondary-head { display: block; }
+      .secondary-copy { margin-top: 10px; text-align: left; }
+      .call-assessment { grid-template-columns: 1fr; gap: 20px; padding: 18px; }
+      .assessment-evidence { grid-template-columns: 1fr 1fr; }
+      .assessment-check { padding: 8px 8px; border-top: 1px solid var(--line); border-left: 0; }
+      .metric-card--pipeline { grid-template-columns: 1fr; }
+      .metric-card--pipeline .metric-list { grid-template-columns: 1fr 1fr; }
+      .metric-card--pipeline .metric-row { min-height: 56px; }
+      .metric-card--barge-in .metric-list { column-count: 1; }
+      .overview-grid { grid-template-columns: 1fr; }
+      .overview-grid .detail-card,
+      .overview-grid .detail-card + .detail-card {
+        grid-column: auto;
+        padding: 22px 0;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+      .overview-grid .detail-card:first-child { border-top: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .shell,
+      .status-value::before,
+      .message.live::after,
+      .fsm-graph-edge,
+      .call-assessment,
+      .workspace.is-synchronized .causal-chain { animation: none !important; }
+    }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <div class="hero-layout">
-        <div class="hero-copy">
-          <p class="eyebrow">Console Transcript</p>
-          <h1>Voice Agent Live View</h1>
-          <p class="subhead">This page mirrors the console conversation so you can follow the exchange outside the terminal. User diarization appears when each utterance finishes; agent text streams while it is generated.</p>
-        </div>
-
-        <article class="detail-card hero-card">
-          <h2 id="hero-card-title" class="hero-card-title"></h2>
-          <div id="hero-pill-list" class="hero-pill-list">
-            <span class="hero-pill">Javier Castro</span>
-            <span class="hero-pill">DNAI</span>
-            <span class="hero-pill">2026</span>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section id="call-assessment" class="call-assessment is-in_progress" aria-live="polite">
+  <a class="skip-link" href="#live-workspace">Skip to live workspace</a>
+  <header class="command-header">
+    <div class="brand-lockup">
+      <span class="brand-signal" aria-hidden="true"></span>
       <div>
-        <p class="assessment-kicker">End-of-call assessment</p>
-        <h2 id="assessment-verdict" class="assessment-verdict">Call in progress</h2>
-        <p id="assessment-summary" class="assessment-summary">The FSM has not reached its terminal state yet.</p>
+        <p class="product-kicker">Deterministic conversation control</p>
+        <h1 class="product-name">Externally Orchestrated Voice Agent</h1>
       </div>
-      <div class="assessment-detail">
-        <div id="assessment-evidence" class="assessment-evidence">
-          <div class="assessment-check">
-            <span class="assessment-check-label">FSM terminal</span>
-            <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>active</span>
-          </div>
-          <div class="assessment-check">
-            <span class="assessment-check-label">Response evidence</span>
-            <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>0/0</span>
-          </div>
-          <div class="assessment-check">
-            <span class="assessment-check-label">FSM adherence</span>
-            <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
-          </div>
-          <div class="assessment-check">
-            <span class="assessment-check-label">Conversation quality</span>
-            <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
-          </div>
-        </div>
-        <div id="assessment-improvements" class="assessment-improvements" hidden>
-          <h3 id="assessment-improvements-title">Improvement opportunities</h3>
-          <ul id="assessment-improvement-list"></ul>
-        </div>
-      </div>
-    </section>
+    </div>
 
-    <section class="status-grid">
+    <div class="connection-block" aria-label="Console connection">
+      <span id="connection-state" class="connection-state">Live link</span>
+      <span class="refresh-label">Refresh&nbsp; 350 ms</span>
+    </div>
+
+    <section class="status-grid" aria-label="Live session states">
       <article class="status-card">
-        <span class="status-label">User State</span>
+        <span class="status-label">Caller</span>
         <span id="user-state" class="status-value">listening</span>
       </article>
       <article class="status-card">
-        <span class="status-label">Agent State</span>
+        <span class="status-label">Agent</span>
         <span id="agent-state" class="status-value">initializing</span>
       </article>
       <article class="status-card">
         <span class="status-label">Barge-in</span>
         <span id="barge-in-state" class="status-value">monitoring</span>
       </article>
-      <article class="status-card">
-        <span class="status-label">Refresh</span>
-        <span class="status-value">350 ms</span>
-      </article>
     </section>
+  </header>
 
-    <section id="fsm-monitor" class="fsm-monitor" aria-live="polite">
-      <div class="fsm-head">
-        <div>
-          <p class="fsm-kicker">External FSM · current phase</p>
-          <h2 id="fsm-phase" class="fsm-phase">awaiting start</h2>
-        </div>
-        <div class="fsm-facts">
-          <div class="fsm-fact">
-            <span class="fsm-fact-label">Latest intent</span>
-            <span id="fsm-intent" class="fsm-fact-value">none</span>
-          </div>
-          <div class="fsm-fact">
-            <span class="fsm-fact-label">Directive</span>
-            <span id="fsm-directive" class="fsm-fact-value">waiting_for_fsm</span>
-          </div>
-          <div class="fsm-fact">
-            <span class="fsm-fact-label">Guard</span>
-            <span id="fsm-guard" class="fsm-fact-value">clear</span>
-          </div>
-          <div class="fsm-fact">
-            <span class="fsm-fact-label">Outcome</span>
-            <span id="fsm-outcome" class="fsm-fact-value">identity pending · active</span>
-          </div>
-        </div>
-      </div>
-      <figure class="fsm-graph-panel" aria-labelledby="fsm-graph-label">
-        <div class="fsm-graph-head">
+  <main class="shell">
+    <section id="live-workspace" class="workspace" aria-label="Synchronized conversation and finite state machine">
+      <section class="transcript-panel" aria-labelledby="transcript-title">
+        <div class="panel-head">
           <div>
-            <p id="fsm-graph-label" class="fsm-kicker">Canonical graph · live position</p>
-            <p id="fsm-graph-status" class="fsm-graph-status">Awaiting the first FSM transition</p>
+            <p class="panel-kicker">Probabilistic channel</p>
+            <h2 id="transcript-title" class="panel-title">Conversation</h2>
           </div>
-          <div class="fsm-verdicts" aria-label="Live compliance verdicts">
-            <span id="fsm-structural-status" class="fsm-verdict is-pending">FSM …</span>
-            <span id="fsm-spoken-status" class="fsm-verdict is-pending">Speech …</span>
+          <span class="panel-mode">Streaming evidence</span>
+        </div>
+
+        <section class="board" aria-label="Live transcript">
+          <div id="feed" class="feed">
+            <div class="empty">The transcript will appear here once the session starts.</div>
+          </div>
+        </section>
+      </section>
+
+      <section id="fsm-monitor" class="fsm-monitor" aria-live="polite" aria-labelledby="fsm-phase">
+        <div class="fsm-head">
+          <div class="fsm-phase-line">
+            <div>
+              <p class="fsm-kicker">Deterministic authority · current phase</p>
+              <h2 id="fsm-phase" class="fsm-phase">awaiting start</h2>
+            </div>
+            <span id="fsm-outcome" class="fsm-outcome">identity pending · active</span>
+          </div>
+
+          <div class="causal-chain" aria-label="Latest deterministic causal chain">
+            <div class="causal-link">
+              <span class="fsm-fact-label">01 · Intent</span>
+              <span id="fsm-intent" class="fsm-fact-value">none</span>
+            </div>
+            <div class="causal-link">
+              <span class="fsm-fact-label">02 · Guard</span>
+              <span id="fsm-guard" class="fsm-fact-value">clear</span>
+            </div>
+            <div class="causal-link">
+              <span class="fsm-fact-label">03 · Transition</span>
+              <span id="fsm-transition-id" class="fsm-fact-value">awaiting_transition</span>
+            </div>
+            <div class="causal-link">
+              <span class="fsm-fact-label">04 · Directive</span>
+              <span id="fsm-directive" class="fsm-fact-value">waiting_for_fsm</span>
+            </div>
           </div>
         </div>
-        <svg id="fsm-graph" class="fsm-graph" viewBox="0 0 1000 470" role="img" aria-labelledby="fsm-graph-label fsm-graph-status"></svg>
-      </figure>
-      <div class="fsm-trail-head">
-        <p class="fsm-kicker">Transition evidence</p>
-        <span id="fsm-count" class="fsm-count">0 transitions</span>
-      </div>
-      <div id="fsm-timeline" class="fsm-timeline">
-        <div class="fsm-empty">The first FSM transition will appear when the call starts.</div>
-      </div>
-    </section>
 
-    <section class="overview-grid">
-      <article id="models-card" class="detail-card">
-        <p class="detail-title">Current Models</p>
-        <div id="model-list" class="model-list">
-          <div class="empty">Model metadata will appear here once the session starts.</div>
+        <figure class="fsm-graph-panel" aria-labelledby="fsm-graph-label">
+          <div class="fsm-graph-head">
+            <div>
+              <p id="fsm-graph-label" class="fsm-kicker">Canonical graph · live position</p>
+              <p id="fsm-graph-status" class="fsm-graph-status">Awaiting the first FSM transition</p>
+            </div>
+            <div class="fsm-verdicts" aria-label="Live compliance verdicts">
+              <span id="fsm-structural-status" class="fsm-verdict is-pending">FSM …</span>
+              <span id="fsm-spoken-status" class="fsm-verdict is-pending">Speech …</span>
+            </div>
+          </div>
+          <svg id="fsm-graph" class="fsm-graph" viewBox="0 0 1000 470" role="img" aria-labelledby="fsm-graph-label fsm-graph-status"></svg>
+          <ol id="fsm-mobile-map" class="fsm-mobile-map" aria-label="Compact finite state machine phases"></ol>
+        </figure>
+
+        <div class="fsm-trail-head">
+          <p class="fsm-kicker">Transition evidence</p>
+          <span id="fsm-count" class="fsm-count">0 transitions</span>
         </div>
-      </article>
-
-      <article id="technology-card" class="detail-card">
-        <p class="detail-title">Technology</p>
-        <div id="technology-list" class="tech-list">
-          <div class="empty">Technology metadata will appear here once the session starts.</div>
+        <div id="fsm-timeline" class="fsm-timeline">
+          <div class="fsm-empty">The first FSM transition will appear when the call starts.</div>
         </div>
-      </article>
+      </section>
     </section>
 
-    <section class="metrics-section">
-      <p class="detail-title">Live Metrics</p>
-      <div id="metrics-grid" class="metrics-grid">
-        <div class="empty">Latency and timing metrics will appear here once the session starts.</div>
+    <section class="secondary-workspace" aria-labelledby="evidence-title">
+      <div class="secondary-head">
+        <div>
+          <p class="evidence-kicker">Continuous evidence</p>
+          <h2 id="evidence-title" class="secondary-title">Runtime instrumentation</h2>
+        </div>
+        <p class="secondary-copy">Latency, model configuration, response evidence, and terminal assessment remain observational; the FSM retains business authority.</p>
       </div>
-    </section>
 
-    <section class="board">
-      <div id="feed" class="feed">
-        <div class="empty">The transcript will appear here once the session starts.</div>
-      </div>
+      <section id="call-assessment" class="call-assessment is-in_progress" aria-live="polite">
+        <div>
+          <p class="assessment-kicker">End-of-call assessment</p>
+          <h2 id="assessment-verdict" class="assessment-verdict">Call in progress</h2>
+          <p id="assessment-summary" class="assessment-summary">The FSM has not reached its terminal state yet.</p>
+        </div>
+        <div class="assessment-detail">
+          <div id="assessment-evidence" class="assessment-evidence">
+            <div class="assessment-check">
+              <span class="assessment-check-label">FSM terminal</span>
+              <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>active</span>
+            </div>
+            <div class="assessment-check">
+              <span class="assessment-check-label">Response evidence</span>
+              <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>0/0</span>
+            </div>
+            <div class="assessment-check">
+              <span class="assessment-check-label">FSM adherence</span>
+              <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
+            </div>
+            <div class="assessment-check">
+              <span class="assessment-check-label">Conversation quality</span>
+              <span class="assessment-check-value"><span class="assessment-dot is-pending"></span>not evaluated</span>
+            </div>
+          </div>
+          <div id="assessment-improvements" class="assessment-improvements" hidden>
+            <h3 id="assessment-improvements-title">Improvement opportunities</h3>
+            <ul id="assessment-improvement-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="metrics-section" aria-labelledby="metrics-title">
+        <p id="metrics-title" class="detail-title">Live metrics</p>
+        <div id="metrics-grid" class="metrics-grid">
+          <div class="empty">Latency and timing metrics will appear here once the session starts.</div>
+        </div>
+      </section>
+
+      <section class="overview-grid" aria-label="Runtime configuration and provenance">
+        <article id="models-card" class="detail-card">
+          <p class="detail-title">Current models</p>
+          <div id="model-list" class="model-list">
+            <div class="empty">Model metadata will appear here once the session starts.</div>
+          </div>
+        </article>
+
+        <article id="technology-card" class="detail-card">
+          <p class="detail-title">Technology</p>
+          <div id="technology-list" class="tech-list">
+            <div class="empty">Technology metadata will appear here once the session starts.</div>
+          </div>
+        </article>
+
+        <article class="detail-card research-meta">
+          <p class="detail-title">Research provenance</p>
+          <h3 id="hero-card-title" class="hero-card-title"></h3>
+          <div id="hero-pill-list" class="hero-pill-list">
+            <span class="hero-pill">Javier Castro</span>
+            <span class="hero-pill">DNAI</span>
+            <span class="hero-pill">2026</span>
+          </div>
+        </article>
+      </section>
     </section>
   </main>
 
@@ -2188,6 +2989,7 @@ def _build_html() -> str:
     let lastFsmFingerprint = "";
     let lastFsmGraphFingerprint = "";
     let lastAssessmentFingerprint = "";
+    let lastTransitionCount = -1;
 
     function escapeHtml(value) {
       return value
@@ -2363,6 +3165,11 @@ def _build_html() -> str:
       const latest = trail.length ? trail[trail.length - 1] : {};
       const activeTransitionId = displayToken(state.transition_id || latest.transition_id, "");
       const currentPhase = displayToken(state.phase, "awaiting_start");
+      const visitedPhases = new Set([currentPhase]);
+      trail.forEach((item) => {
+        if (item.from_phase) visitedPhases.add(item.from_phase);
+        if (item.to_phase) visitedPhases.add(item.to_phase);
+      });
       const graphFingerprint = JSON.stringify(graphData) + JSON.stringify({
         currentPhase,
         activeTransitionId,
@@ -2429,13 +3236,18 @@ def _build_html() -> str:
         if (!position) return "";
         const lines = graphNodeLines(node.label);
         const isCurrent = node.id === currentPhase;
-        const isTraversed = node.id === activeFrom || node.id === activeTo;
+        const isTraversed = visitedPhases.has(node.id);
         const lineOffset = lines.length === 1 ? 4 : -3;
         const text = lines.map((line, lineIndex) => `<tspan x="${position.x}" dy="${lineIndex === 0 ? lineOffset : 13}">${escapeHtml(line)}</tspan>`).join("");
         return `<g class="fsm-graph-node${node.terminal ? " is-terminal" : ""}${isTraversed ? " is-traversed" : ""}${isCurrent ? " is-current" : ""}"><rect x="${position.x - 58}" y="${position.y - 20}" width="116" height="40" rx="7"></rect><text x="${position.x}" y="${position.y}">${text}</text></g>`;
       }).join("");
 
       graphNode.innerHTML = `<title>Live finite state machine graph</title><desc>The current phase and latest executed transition are highlighted. A separate marker reports spoken-response compliance.</desc><defs><marker id="fsm-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke"></path></marker></defs>${edgeMarkup}${runtimeEdge}${globalNode}${nodeMarkup}${spokenMarker}`;
+      document.getElementById("fsm-mobile-map").innerHTML = nodes.map((node) => {
+        const isCurrent = node.id === currentPhase;
+        const isTraversed = visitedPhases.has(node.id);
+        return `<li class="fsm-mobile-state${isTraversed ? " is-traversed" : ""}${isCurrent ? " is-current" : ""}${node.terminal ? " is-terminal" : ""}">${escapeHtml(displayPhase(node.label))}</li>`;
+      }).join("");
     }
 
     function renderAssessment(assessment) {
@@ -2489,9 +3301,11 @@ def _build_html() -> str:
       const terminal = Boolean(state.should_end);
 
       monitor.className = `fsm-monitor${guard !== "clear" ? " has-guard" : ""}${terminal ? " is-terminal" : ""}`;
+      document.body.classList.toggle("is-terminal", terminal);
 
       document.getElementById("fsm-phase").textContent = displayPhase(state.phase);
       document.getElementById("fsm-intent").textContent = displayToken(state.intent, "none");
+      document.getElementById("fsm-transition-id").textContent = displayToken(state.transition_id, "awaiting_transition");
       document.getElementById("fsm-directive").textContent = displayToken(state.directive, "waiting_for_fsm");
       document.getElementById("fsm-guard").textContent = guard;
 
@@ -2501,6 +3315,15 @@ def _build_html() -> str:
       document.getElementById("fsm-outcome").textContent = `${identity}${resolution}${refusals} · ${terminal ? "terminal" : "active"}`;
       document.getElementById("fsm-count").textContent = `${trail.length} transition${trail.length === 1 ? "" : "s"}`;
       renderFSMGraph(graph, state, trail, fsmAdherence, spokenCompliance);
+
+      if (lastTransitionCount >= 0 && trail.length > lastTransitionCount) {
+        const workspace = document.getElementById("live-workspace");
+        workspace.classList.remove("is-synchronized");
+        void workspace.offsetWidth;
+        workspace.classList.add("is-synchronized");
+        setTimeout(() => workspace.classList.remove("is-synchronized"), 720);
+      }
+      lastTransitionCount = trail.length;
 
       const timeline = document.getElementById("fsm-timeline");
       if (!trail.length) {
@@ -2631,8 +3454,14 @@ def _build_html() -> str:
       try {
         const response = await fetch("/api/state", { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const connectionNode = document.getElementById("connection-state");
+        connectionNode.className = "connection-state";
+        connectionNode.textContent = "Live link";
         render(await response.json());
       } catch (error) {
+        const connectionNode = document.getElementById("connection-state");
+        connectionNode.className = "connection-state is-offline";
+        connectionNode.textContent = "Link unavailable";
         feed.innerHTML = `<div class="empty">Live view unavailable: ${escapeHtml(String(error))}</div>`;
       } finally {
         setTimeout(tick, 350);

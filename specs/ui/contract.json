@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "surface": "console_transcript_web_ui",
   "requiredElementIds": [
     "user-state",
@@ -11,7 +11,11 @@
     "feed",
     "fsm-graph",
     "fsm-structural-status",
-    "fsm-spoken-status"
+    "fsm-spoken-status",
+    "connection-state",
+    "live-workspace",
+    "fsm-transition-id",
+    "fsm-mobile-map"
   ],
   "requiredStateFields": [
     "user_state",
