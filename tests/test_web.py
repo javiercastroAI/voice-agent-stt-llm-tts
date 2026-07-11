@@ -216,6 +216,8 @@ class TranscriptWebServerTests(unittest.TestCase):
         self.assertIn('id="technology-card"', _build_html())
         self.assertIn("Live Metrics", _build_html())
         self.assertIn('id="metrics-grid"', _build_html())
+        self.assertIn("metric-card--pipeline", _build_html())
+        self.assertIn("metric-card--barge-in", _build_html())
         self.assertIn('id="barge-in-state"', _build_html())
         self.assertIn('id="fsm-monitor"', _build_html())
         self.assertIn('id="fsm-phase"', _build_html())

@@ -1178,23 +1178,23 @@ def _build_html() -> str:
       .fsm-evidence { display: none; }
     }
 
-    /* 2026 operational-console visual system. Presentation only. */
+    /* Refined light operational-console visual system. Presentation only. */
     :root {
-      color-scheme: dark;
-      --bg: #070a0d;
-      --panel: #0d1116;
-      --panel-raised: #11171d;
-      --line: rgba(226, 232, 240, 0.10);
-      --line-strong: rgba(226, 232, 240, 0.17);
-      --ink: #f4f7f9;
-      --muted: #8a98a6;
-      --accent: #4de2c5;
-      --accent-soft: rgba(77, 226, 197, 0.10);
-      --user: #79a7ff;
-      --user-soft: rgba(121, 167, 255, 0.09);
-      --agent: #4de2c5;
-      --agent-soft: rgba(77, 226, 197, 0.08);
-      --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+      color-scheme: light;
+      --bg: #f3f1eb;
+      --panel: #faf9f5;
+      --panel-raised: #ffffff;
+      --line: rgba(37, 43, 39, 0.11);
+      --line-strong: rgba(37, 43, 39, 0.18);
+      --ink: #202521;
+      --muted: #737c75;
+      --accent: #176b5b;
+      --accent-soft: rgba(23, 107, 91, 0.09);
+      --user: #416b9d;
+      --user-soft: rgba(65, 107, 157, 0.08);
+      --agent: #176b5b;
+      --agent-soft: rgba(23, 107, 91, 0.07);
+      --shadow: 0 24px 68px rgba(47, 52, 45, 0.09);
       --radius: 14px;
     }
 
@@ -1204,9 +1204,9 @@ def _build_html() -> str:
       font-family: Inter, "SF Pro Display", "Segoe UI", sans-serif;
       letter-spacing: -0.01em;
       background:
-        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-        radial-gradient(circle at 88% -8%, rgba(77, 226, 197, 0.11), transparent 31rem),
+        linear-gradient(rgba(32, 37, 33, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(32, 37, 33, 0.018) 1px, transparent 1px),
+        radial-gradient(circle at 88% -8%, rgba(23, 107, 91, 0.10), transparent 31rem),
         var(--bg);
       background-size: 32px 32px, 32px 32px, auto, auto;
     }
@@ -1256,7 +1256,7 @@ def _build_html() -> str:
       margin-right: 9px;
       border-radius: 50%;
       background: var(--accent);
-      box-shadow: 0 0 18px rgba(77, 226, 197, 0.65);
+      box-shadow: 0 0 14px rgba(23, 107, 91, 0.30);
     }
 
     h1 {
@@ -1269,7 +1269,7 @@ def _build_html() -> str:
 
     .subhead {
       max-width: 66ch;
-      color: #a9b4be;
+      color: #626c65;
       font-size: 15px;
       line-height: 1.6;
     }
@@ -1309,11 +1309,26 @@ def _build_html() -> str:
       padding: 7px 10px;
       border: 1px solid var(--line);
       border-radius: 5px;
-      color: #b9c4cd;
-      background: rgba(255, 255, 255, 0.025);
+      color: #535d56;
+      background: rgba(255, 255, 255, 0.42);
       font-family: "SFMono-Regular", Consolas, monospace;
       font-size: 11px;
       font-weight: 600;
+    }
+
+    .hero-pill-list { align-items: center; }
+
+    .hero-pill:first-child {
+      flex-basis: 100%;
+      padding: 0 0 10px;
+      border: 0;
+      color: var(--ink);
+      background: transparent;
+      font-family: Inter, "SF Pro Display", "Segoe UI", sans-serif;
+      font-size: clamp(27px, 3vw, 38px);
+      font-weight: 650;
+      line-height: 1;
+      letter-spacing: -.045em;
     }
 
     .status-grid {
@@ -1338,7 +1353,7 @@ def _build_html() -> str:
     .status-value {
       max-width: 100%;
       padding: 0;
-      color: #dce3e8;
+      color: #38413a;
       background: none;
       font-family: "SFMono-Regular", Consolas, monospace;
       font-size: 13px;
@@ -1379,7 +1394,7 @@ def _build_html() -> str:
       letter-spacing: -0.055em;
     }
 
-    .assessment-summary { color: #9eabb6; font-size: 14px; }
+    .assessment-summary { color: #687169; font-size: 14px; }
     .assessment-evidence { gap: 0; }
 
     .assessment-check {
@@ -1391,24 +1406,35 @@ def _build_html() -> str:
 
     .assessment-check:first-child { border-left: 0; padding-left: 0; }
     .assessment-check-label { font-size: 9px; }
-    .assessment-check-value { color: #e5ebef; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+    .assessment-check-value { color: #343c36; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
 
     .fsm-monitor {
+      --fsm-accent: #176b5b;
       margin-bottom: 28px;
       padding: 30px;
-      border: 1px solid rgba(77, 226, 197, 0.16);
+      border: 1px solid rgba(23, 107, 91, 0.18);
       border-radius: 12px;
       color: var(--ink);
-      background: #0a1113;
-      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,.025);
+      background: #e9efea;
+      box-shadow: 0 22px 60px rgba(55, 67, 58, 0.10), inset 0 1px 0 rgba(255,255,255,.70);
     }
 
     .fsm-monitor::before { width: 2px; }
+    .fsm-monitor.has-guard { --fsm-accent: #9b6a20; }
+    .fsm-monitor.is-terminal { --fsm-accent: #237a4b; }
     .fsm-head { align-items: start; }
     .fsm-phase { font-weight: 600; }
-    .fsm-fact-value, .fsm-route, .fsm-transition-primary { color: #dfe8e7; }
+    .fsm-kicker,
+    .fsm-count,
+    .fsm-fact-label,
+    .fsm-route-from,
+    .fsm-transition-secondary,
+    .fsm-empty { color: #68756b; }
+    .fsm-fact-value, .fsm-route, .fsm-transition-primary, .fsm-route-to { color: #26332b; }
+    .fsm-head,
+    .fsm-transition { border-color: rgba(38, 51, 43, 0.12); }
     .fsm-transition { transition: background-color 160ms ease; }
-    .fsm-transition:hover { background: rgba(255, 255, 255, 0.025); }
+    .fsm-transition:hover { background: rgba(255, 255, 255, 0.34); }
 
     .overview-grid {
       gap: 0;
@@ -1437,19 +1463,193 @@ def _build_html() -> str:
 
     .model-row:first-child { border-top: 0; }
 
-    .metrics-section { margin-bottom: 36px; }
-    .metrics-grid { gap: 0; border-block: 1px solid var(--line); }
-
-    .metric-card {
-      padding: 22px;
-      border: 0;
-      border-right: 1px solid var(--line);
-      border-radius: 0;
+    .detail-title {
+      color: #454f47;
+      font-size: 13px;
+      font-weight: 750;
+      letter-spacing: .105em;
     }
 
-    .metric-card:last-child { border-right: 0; }
-    .metric-row { border-color: var(--line); }
-    .metric-value { color: #e7ecef; font-family: "SFMono-Regular", Consolas, monospace; font-weight: 600; }
+    .assessment-kicker,
+    .fsm-kicker {
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .13em;
+    }
+
+    .metrics-section {
+      gap: 9px;
+      margin-bottom: 32px;
+    }
+
+    .metrics-section > .detail-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      color: #283029;
+      font-size: 16px;
+      letter-spacing: .09em;
+    }
+
+    .metrics-section > .detail-title::after {
+      content: "continuous telemetry";
+      padding-left: 10px;
+      border-left: 1px solid var(--line-strong);
+      color: #919991;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: .04em;
+      text-transform: lowercase;
+    }
+
+    .metrics-grid {
+      grid-template-columns: 1fr;
+      gap: 1px;
+      padding: 1px;
+      border: 0;
+      background: var(--line);
+    }
+
+    .metric-card {
+      min-width: 0;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 0;
+      background: var(--panel);
+    }
+
+    .metric-title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 9px;
+      color: #354038;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .105em;
+      line-height: 1.2;
+    }
+
+    .metric-title::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: .72;
+    }
+
+    .metric-card--pipeline {
+      display: grid;
+      grid-template-columns: minmax(128px, .55fr) minmax(0, 3.45fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .metric-card--pipeline .metric-title {
+      align-self: center;
+      margin: 0;
+    }
+
+    .metric-card--pipeline .metric-list {
+      display: grid;
+      grid-template-columns: repeat(var(--metric-count), minmax(0, 1fr));
+      gap: 0;
+      min-width: 0;
+    }
+
+    .metric-card--pipeline .metric-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      align-content: center;
+      justify-items: start;
+      gap: 9px;
+      min-height: 62px;
+      padding: 5px 16px;
+      border-top: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .metric-card--pipeline .metric-label {
+      color: #677168;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .065em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .metric-card--pipeline .metric-value {
+      color: #202923;
+      font-size: clamp(17px, 1.5vw, 21px);
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .metric-card--barge-in {
+      padding: 17px 18px 16px;
+      background: #f6f7f3;
+    }
+
+    .metric-card--barge-in .metric-title {
+      margin: 0 0 14px;
+      padding-bottom: 13px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    .metric-card--barge-in .metric-list {
+      display: block;
+      column-count: 4;
+      column-gap: 32px;
+      column-rule: 1px solid var(--line);
+    }
+
+    .metric-row {
+      min-height: 27px;
+      gap: 8px;
+      padding: 6px 0 5px;
+      border-color: var(--line);
+      transition: color 140ms ease, background-color 140ms ease;
+    }
+
+    .metric-row:hover {
+      background: rgba(23, 107, 91, .045);
+    }
+
+    .metric-card--barge-in .metric-row {
+      break-inside: avoid;
+      margin: 0 9px;
+      min-height: 34px;
+      padding: 8px 5px 7px;
+    }
+
+    .metric-card--barge-in .metric-row:first-child {
+      padding-top: 6px;
+      border-top: 1px solid var(--line);
+    }
+
+    .metric-label {
+      min-width: 0;
+      color: #717a73;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .metric-value {
+      flex: 0 0 auto;
+      color: #303832;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
 
     .board {
       padding-top: 2px;
@@ -1478,7 +1678,7 @@ def _build_html() -> str:
       transition: background-color 160ms ease;
     }
 
-    .message:hover { background: rgba(255, 255, 255, .018) !important; }
+    .message:hover { background: rgba(255, 255, 255, .30) !important; }
 
     .message::before {
       content: "";
@@ -1492,10 +1692,10 @@ def _build_html() -> str:
     }
 
     .message.user::before { background: var(--user); }
-    .speaker { color: #aab5be; font-weight: 700; }
+    .speaker { color: #667168; font-weight: 700; }
     .badge { padding: 4px 7px; border: 1px solid var(--line); border-radius: 4px; background: transparent; font-size: 10px; }
-    .body { max-width: 86ch; color: #e4eaee; font-size: 16px; line-height: 1.65; }
-    .empty { border-color: var(--line); border-radius: 8px; background: rgba(255,255,255,.012); }
+    .body { max-width: 86ch; color: #2d342f; font-size: 16px; line-height: 1.65; }
+    .empty { border-color: var(--line); border-radius: 8px; background: rgba(255,255,255,.24); }
 
     :focus-visible {
       outline: 2px solid var(--accent);
@@ -1522,8 +1722,33 @@ def _build_html() -> str:
       .overview-grid .detail-card + .detail-card { padding: 22px 0; border-left: 0; }
       .overview-grid .detail-card + .detail-card { border-top: 1px solid var(--line); }
       .metrics-grid { grid-template-columns: 1fr; }
-      .metric-card { border-right: 0; border-bottom: 1px solid var(--line); }
-      .metric-card:last-child { border-bottom: 0; }
+      .metric-card { border: 0; }
+      .metric-card--pipeline {
+        grid-template-columns: 112px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .metric-card--pipeline .metric-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .metric-card--pipeline .metric-row:nth-child(odd) { border-left: 1px solid var(--line); }
+      .metric-card--pipeline .metric-row:nth-child(n+3) { border-top: 1px solid var(--line); }
+      .metric-card--barge-in .metric-list { column-count: 2; }
+    }
+
+    @media (min-width: 881px) and (max-width: 1160px) {
+      .metric-card--barge-in .metric-list { column-count: 3; }
+    }
+
+    @media (max-width: 560px) {
+      .metrics-section > .detail-title::after { display: none; }
+      .metric-card--pipeline {
+        grid-template-columns: 1fr;
+        gap: 7px;
+      }
+      .metric-card--pipeline .metric-title { padding: 2px 4px 7px; }
+      .metric-card--pipeline .metric-row:first-child { border-left: 0; }
+      .metric-card--barge-in .metric-list { column-count: 1; }
+      .metric-card--barge-in .metric-row { margin-inline: 0; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1744,17 +1969,23 @@ def _build_html() -> str:
         return;
       }
 
-      metricsGrid.innerHTML = metrics.map((panel) => `
-        <article class="metric-card">
+      metricsGrid.innerHTML = metrics.map((panel) => {
+        const items = Array.isArray(panel.items) ? panel.items : [];
+        const panelClass = panel.id === "barge_in"
+          ? "metric-card metric-card--barge-in"
+          : "metric-card metric-card--pipeline";
+        return `
+        <article class="${panelClass}" style="--metric-count: ${Math.max(items.length, 1)}">
           <p class="metric-title">${escapeHtml(panel.title || panel.id || "Metrics")}</p>
-          <div class="metric-list">${(Array.isArray(panel.items) ? panel.items : []).map((item) => `
+          <div class="metric-list">${items.map((item) => `
             <div class="metric-row">
               <span class="metric-label">${escapeHtml(item.label || "")}</span>
               <span class="metric-value">${escapeHtml(item.value || "")}</span>
             </div>
           `).join("")}</div>
         </article>
-      `).join("");
+      `;
+      }).join("");
     }
 
     function displayToken(value, fallback = "—") {

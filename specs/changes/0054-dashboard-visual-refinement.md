@@ -8,13 +8,21 @@ controls.
 
 ## Scope
 
-- Replace the warm, decorative presentation with a cohesive dark operational
-  workspace.
+- Replace the decorative presentation with a cohesive, light operational
+  workspace using ivory surfaces, graphite type, and a restrained botanical
+  accent.
 - Strengthen hierarchy through typography, spacing, alignment, and restrained
   use of a single cyan signal color.
 - Present status, assessment, FSM evidence, metrics, and transcript as one
   consistent interface rather than a collection of unrelated cards.
 - Improve desktop density and small-screen responsiveness.
+- Present LLM, STT, TTS, and end-of-utterance telemetry as compact horizontal
+  instrument rows with tightly paired labels and tabular values.
+- Present the larger barge-in telemetry family as a dedicated full-width
+  diagnostic panel with balanced vertical reading columns.
+- Establish an explicit typography hierarchy in which authorship and section
+  titles are conspicuous, KPI labels are visually separated captions, and
+  values are large enough for rapid operational scanning.
 - Preserve a static FSM monitor between actual FSM data changes.
 - Add only restrained entrance and affordance motion, with reduced-motion
   support.
@@ -31,6 +39,10 @@ The user explicitly requested a visual-presence and UI-quality improvement on
   end-of-call assessment logic remain unchanged.
 - The page has a coherent operational-console visual language at desktop and
   mobile widths.
+- Pipeline telemetry uses horizontal KPI rows, barge-in telemetry uses vertical
+  diagnostic columns, and both reflow without horizontal scrolling.
+- Javier Castro is visually prominent in the header, and KPI titles, labels,
+  and values remain clearly distinguishable at desktop and mobile widths.
 - Live state, pass, warning, and failure conditions remain visually distinct.
 - Keyboard focus is visible and motion is disabled when the operating system
   requests reduced motion.
